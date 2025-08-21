@@ -42,16 +42,13 @@ if ! POETRY_PATH=$(which poetry); then
 fi
 echo "📦 Poetry: $POETRY_PATH"
 
-# Create log directory
-mkdir -p /var/log
-touch /var/log/mlx-chat-server.log
-touch /var/log/mlx-chat-server-error.log
-touch /var/log/embed-server.log
-touch /var/log/embed-server-error.log
-
-# Set log permissions
-chown $REAL_USER:staff /var/log/mlx-chat-server*.log
-chown $REAL_USER:staff /var/log/embed-server*.log
+# Create log directories in the user's home directory
+CHAT_LOG_DIR="$USER_HOME/Library/Logs/com.local.mlx-chat-server"
+EMBED_LOG_DIR="$USER_HOME/Library/Logs/com.local.embed-server"
+mkdir -p "$CHAT_LOG_DIR"
+mkdir -p "$EMBED_LOG_DIR"
+chown -R "$REAL_USER" "$CHAT_LOG_DIR"
+chown -R "$REAL_USER" "$EMBED_LOG_DIR"
 
 echo "📝 Creating LaunchDaemon plist files..."
 
@@ -92,10 +89,10 @@ cat > /Library/LaunchDaemons/com.local.mlx-chat-server.plist << EOF
     <true/>
     
     <key>StandardOutPath</key>
-    <string>/var/log/mlx-chat-server.log</string>
+    <string>${CHAT_LOG_DIR}/stdout.log</string>
     
     <key>StandardErrorPath</key>
-    <string>/var/log/mlx-chat-server-error.log</string>
+    <string>${CHAT_LOG_DIR}/stderr.log</string>
     
     <key>UserName</key>
     <string>$REAL_USER</string>
@@ -144,10 +141,10 @@ cat > /Library/LaunchDaemons/com.local.embed-server.plist << EOF
     <true/>
     
     <key>StandardOutPath</key>
-    <string>/var/log/embed-server.log</string>
+    <string>${EMBED_LOG_DIR}/stdout.log</string>
     
     <key>StandardErrorPath</key>
-    <string>/var/log/embed-server-error.log</string>
+    <string>${EMBED_LOG_DIR}/stderr.log</string>
     
     <key>UserName</key>
     <string>$REAL_USER</string>
