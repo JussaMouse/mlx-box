@@ -51,16 +51,26 @@ read_toml() {
     
     # Awk script to parse the value. It finds the section header (e.g., [services.frontend])
     # then looks for the key (e.g., port) until it hits the next section or EOF.
-    awk -v section="[${section_key}]" -v field="^${field} " '
+    awk -v section="[${section_key}]" -v key="${field}" '
         BEGIN { in_section=0 }
         $0 == section { in_section=1; next }
-        /\[.*\]/ && in_section { exit; } # Exit if we are in section and find a new one
-        in_section && $0 ~ field {
-            val=$0
-            sub(/^.*= */, "", val)
-            gsub(/^"|"$/, "", val)
-            print val
-            exit
+        /^\s*\[.*\]/ && in_section { exit }
+        in_section {
+            # remove comments and leading/trailing whitespace from line
+            line = $0
+            sub(/#.*/, "", line)
+            sub(/^\s*/, "", line)
+            sub(/\s*$/, "", line)
+
+            # check if line matches "key = value"
+            if (line ~ "^" key "\\s*=") {
+                val = line
+                sub(/^[^=]+=\s*/, "", val) # remove everything up to and including = and spaces
+                gsub(/^"|"$/, "", val)    # remove quotes
+                gsub(/\s*$/, "", val)     # remove trailing spaces from value
+                print val
+                exit
+            }
         }
     ' "${PROJECT_DIR}/config/settings.toml"
 }
