@@ -34,8 +34,9 @@ log "Starting model update process for: ${MODEL_ID}"
 
 # 1. Update the configuration file using a robust awk script.
 log "Updating configuration file at '${CONFIG_FILE}'..."
-awk -v model_id="$MODEL_ID" '
-    BEGIN { in_section=0; updated=0 }
+# Pass the model_id as an environment variable to awk to handle slashes correctly.
+MODEL_ID="${MODEL_ID}" awk '
+    BEGIN { in_section=0; updated=0; model_id=ENVIRON["MODEL_ID"] }
     /\[services\.chat\]/ { in_section=1 }
     /^\s*\[.*\]/ && !/\[services\.chat\]/ { in_section=0 }
     in_section && /^\s*model\s*=/ {
@@ -56,13 +57,17 @@ success "Service restarted. Download should begin shortly."
 # 3. Monitor the log file for download progress.
 REAL_USER=${SUDO_USER:-$(whoami)}
 LOG_FILE="/Users/${REAL_USER}/Library/Logs/${SERVICE_NAME}/stderr.log"
+LOG_DIR=$(dirname "${LOG_FILE}")
 
 log "Tailing log file to monitor download progress..."
 echo "   Log file: ${LOG_FILE}"
 echo "   (Press Ctrl+C to stop monitoring)"
 
+# Ensure the log directory exists before trying to access the file.
+mkdir -p "${LOG_DIR}"
 # Give the service a moment to start and clear the old log.
 sleep 2
+# Clear the log file so we only see the new download progress.
 > "$LOG_FILE"
 
 # Use awk to process the log file in real-time and display a progress bar.
