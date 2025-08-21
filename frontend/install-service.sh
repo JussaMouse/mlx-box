@@ -25,8 +25,11 @@ TARGET_DIR=$(dirname "$0") # The directory where this script is located.
 
 # Dynamically find Node.js and npx executables.
 # This is more robust than hardcoding paths.
-if ! NVM_DIR="$HOME/.nvm" [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; then
-    echo "❌ ERROR: Could not source nvm.sh. Is NVM installed correctly?" >&2
+# Source nvm from the Homebrew path, which is more reliable under sudo.
+if [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
+    . "/opt/homebrew/opt/nvm/nvm.sh"
+else
+    echo "❌ ERROR: Could not source nvm.sh from Homebrew. Is NVM installed correctly?" >&2
     exit 1
 fi
 NODE_PATH=$(which node)
