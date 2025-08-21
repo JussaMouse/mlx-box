@@ -52,24 +52,25 @@ read_toml() {
     # Awk script to parse the value. It finds the section header (e.g., [services.frontend])
     # then looks for the key (e.g., port) until it hits the next section or EOF.
     awk -v section="[${section_key}]" -v key="${field}" '
+        function trim(s) { sub(/^[ \t\r\n]+/, "", s); sub(/[ \t\r\n]+$/, "", s); return s }
         BEGIN { in_section=0 }
-        $0 == section { in_section=1; next }
-        /^\s*\[.*\]/ && in_section { exit }
-        in_section {
-            # remove comments and leading/trailing whitespace from line
-            line = $0
-            sub(/#.*/, "", line)
-            sub(/^\s*/, "", line)
-            sub(/\s*$/, "", line)
+        {
+            current_line = trim($0)
+            if (current_line == section) { in_section=1; next }
+            if (match(current_line, /^\s*\[.*\]/) && in_section) { exit }
+            if (in_section) {
+                # remove comments
+                sub(/#.*/, "", current_line)
+                current_line = trim(current_line)
 
-            # check if line matches "key = value"
-            if (line ~ "^" key "\\s*=") {
-                val = line
-                sub(/^[^=]+=\s*/, "", val) # remove everything up to and including = and spaces
-                gsub(/^"|"$/, "", val)    # remove quotes
-                gsub(/\s*$/, "", val)     # remove trailing spaces from value
-                print val
-                exit
+                # check if line matches "key = value"
+                if (match(current_line, "^" key "\\s*=")) {
+                    val = substr(current_line, RSTART + RLENGTH)
+                    val = trim(val)
+                    gsub(/^"|"$/, "", val) # remove quotes
+                    print val
+                    exit
+                }
             }
         }
     ' "${PROJECT_DIR}/config/settings.toml"
