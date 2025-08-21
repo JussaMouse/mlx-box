@@ -83,25 +83,48 @@ The script is idempotent and safe to re-run. It will install all tools, dynamica
 
 ---
 
-## 3. Configuration (`settings.toml`) Explained
+## 3. Configuration Explained
 
-This file is the heart of your server's setup.
+The server is configured using two files in the `config/` directory.
 
-#### `[server]`
--   `domain_name`: **Required.** Your server's public domain name.
--   `letsencrypt_email`: **Required.** Your email for SSL certificate registration.
--   `host`: **Must be `"127.0.0.1"`** for the secure reverse-proxy architecture to work.
+### `settings.env` (for the installer)
 
-#### `[services.ssh]`
--   `port`: The custom port for your SSH service. This port will be automatically opened in the firewall.
+This file uses a simple `KEY=VALUE` format and is used by the shell scripts (`install.sh`, `update-model.sh`, etc.) to configure the server environment. You must copy the example file and edit it before running the installer.
 
-#### `[services.chat | embedding | frontend]`
--   `port`: The internal `localhost` port the service will run on. Nginx will proxy traffic to this port.
--   `model`: The Hugging Face model ID to use.
+-   `DOMAIN_NAME`: **Required.** Your server's public domain name.
+-   `LETSENCRYPT_EMAIL`: **Required.** Your email for SSL certificate registration.
+-   `SSH_PORT`: The custom port for your SSH service.
+-   `CHAT_PORT`, `EMBED_PORT`, `FRONTEND_PORT`: The internal `localhost` ports for the application services.
+
+### `settings.toml` (for the AI services)
+
+This file is used exclusively by the Python-based AI services (`chat-server.py`, `embed-server.py`) to select which models to load.
+
+-   `model`: The Hugging Face model ID for the chat and embedding services. You can change this to use any compatible model from the `mlx-community` library.
 
 ---
 
-## 4. Updating Your Server
+## 4. Model Management
+
+You can easily switch to a new chat model without re-running the entire installation.
+
+### Using the `update-model.sh` Script
+
+The simplest method is to use the provided `update-model.sh` script. It will automatically update your configuration, restart the service, and show you the download progress.
+
+```sh
+# Make the script executable (only need to do this once)
+chmod +x update-model.sh
+
+# Run the script with the new model ID
+./update-model.sh mlx-community/Llama-3-8B-Instruct-4bit
+```
+
+The script will handle the rest. The server will download the new model (which can take some time) and load it.
+
+---
+
+## 5. Updating Your Server
 
 To update your server to the latest version of the `mlx-box` code, follow this procedure. This process is designed to be safe and to preserve your existing configuration and data.
 
@@ -145,15 +168,15 @@ The `install.sh` script is designed to be safely re-run for updates. It will int
 After the script completes, check that the services are running and accessible.
 ```sh
 # Check the status of the Nginx service
-brew services list | grep nginx
+sudo launchctl list | grep nginx
 
 # Check the application logs for any errors
-tail -f /Users/env/Library/Logs/com.mlx-box.frontend-server/stderr.log
+tail -f ~/Library/Logs/com.mlx-box.frontend-server/stderr.log
 ```
 
 ---
 
-## 5. Backup and Disaster Recovery
+## 6. Backup and Disaster Recovery
 
 The backup strategy separates private user data from public, replaceable code.
 
@@ -169,13 +192,13 @@ sudo tar -czvf mlx-box-backup-$(date +%Y-%m-%d).tar.gz /Users/env/server/config 
 ```
 
 ### 5.2. Restore Procedure
-1.  Provision a fresh server using the `install.sh` script (after setting up DNS, SSH, and your `config.toml` file).
+1.  Provision a fresh server using the `install.sh` script (after setting up DNS, SSH, and your `config/` files).
 2.  Transfer your latest backup file to the server.
 3.  Unpack the backup archive from the root directory:
     ```sh
     # This will restore your config and SSL certs
     sudo tar -xzvf mlx-box-backup-2024-01-01.tar.gz -C /
     ```
-4.  Restart the services (`sudo brew services restart nginx`, etc.) to use the restored configurations.
+4.  Restart the services (`sudo launchctl kickstart -k system/homebrew.mxcl.nginx`, etc.) to use the restored configurations.
 
 *(Other sections like `wooster` installation, service management, and troubleshooting would be updated to reflect the new Nginx-based URLs and localhost-only service access.)*

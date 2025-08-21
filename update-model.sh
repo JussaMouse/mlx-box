@@ -43,7 +43,10 @@ success "Configuration updated."
 
 # 2. Restart the chat service to apply the changes.
 log "Restarting chat service ('${SERVICE_NAME}')..."
-sudo launchctl kickstart -k "system/${SERVICE_NAME}"
+# Use stop/start for a more reliable restart that preserves the working directory.
+sudo launchctl stop "${SERVICE_NAME}" 2>/dev/null || true
+sleep 2 # Give the service a moment to fully stop.
+sudo launchctl start "${SERVICE_NAME}"
 success "Service restarted. Download should begin shortly."
 
 # 3. Monitor the log file for download progress.

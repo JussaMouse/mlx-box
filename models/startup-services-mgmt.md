@@ -7,41 +7,48 @@ launchctl list | grep com.local
 ```
 
 ## Log Monitoring
-View real-time logs:
+View real-time logs for the AI services. These are located in your user's Library folder.
 ```bash
-# Embedding server logs
-tail -f /var/log/embed-server.log
-tail -f /var/log/embed-server-error.log
+# Get the current user's home directory
+REAL_USER=${SUDO_USER:-$(whoami)}
+LOG_DIR="/Users/${REAL_USER}/Library/Logs"
 
-# Chat server logs  
-tail -f /var/log/mlx-chat-server.log
-tail -f /var/log/mlx-chat-server-error.log
+# Embedding server logs
+tail -f "${LOG_DIR}/com.local.embed-server/stderr.log"
+
+# Chat server logs
+tail -f "${LOG_DIR}/com.local.mlx-chat-server/stderr.log"
 ```
 
 ## Service Management Commands
 
 ### Stop Services
 ```bash
-sudo launchctl unload /Library/LaunchDaemons/com.local.embed-server.plist
-sudo launchctl unload /Library/LaunchDaemons/com.local.mlx-chat-server.plist
+sudo launchctl stop com.local.embed-server
+sudo launchctl stop com.local.mlx-chat-server
 ```
 
-### Start Services  
+### Start Services
 ```bash
-sudo launchctl load /Library/LaunchDaemons/com.local.embed-server.plist
-sudo launchctl load /Library/LaunchDaemons/com.local.mlx-chat-server.plist
+sudo launchctl start com.local.embed-server
+sudo launchctl start com.local.mlx-chat-server
 ```
 
 ### Restart Services
+The `kickstart` command is the modern and safest way to restart a service.
 ```bash
-# Stop both
-sudo launchctl unload /Library/LaunchDaemons/com.local.embed-server.plist
-sudo launchctl unload /Library/LaunchDaemons/com.local.mlx-chat-server.plist
+# Restart the embedding server
+sudo launchctl kickstart -k system/com.local.embed-server
 
-# Start both (embedding first, then chat)
-sudo launchctl load /Library/LaunchDaemons/com.local.embed-server.plist
-sleep 30
-sudo launchctl load /Library/LaunchDaemons/com.local.mlx-chat-server.plist
+# Restart the chat server
+sudo launchctl kickstart -k system/com.local.mlx-chat-server
+```
+
+## Model Management
+The easiest way to update the chat model is to use the `update-model.sh` script in the project's root directory. See the main `README.md` for details.
+```bash
+# From the project root
+./update-model.sh mlx-community/New-Model-Name-4bit
 ```
 
 ## Test Endpoints
