@@ -2,14 +2,20 @@
 set -e
 
 # --- Configuration ---
+# Source the main settings file to get all environment variables.
+# The path is relative to this script's location.
+if [ ! -f "$(dirname "$0")/../config/settings.env" ]; then
+    echo "❌ ERROR: Configuration file not found at $(dirname "$0")/../config/settings.env" >&2
+    exit 1
+fi
+source "$(dirname "$0")/../config/settings.env"
 
-# Use the absolute path to the project root to find the config file
 SERVICE_NAME="com.mlx-box.frontend-server"
-PORT="$1" # Read port from the first command-line argument
+# PORT is now available from the sourced settings.env file.
 TARGET_DIR=$(dirname "$0") # The directory where this script is located.
 
-if [ -z "$PORT" ]; then
-    echo "❌ ERROR: Port number was not provided as an argument to the script." >&2
+if [ -z "$FRONTEND_PORT" ]; then
+    echo "❌ ERROR: FRONTEND_PORT is not set in the settings.env file." >&2
     exit 1
 fi
 
@@ -44,7 +50,7 @@ LOG_DIR="/Users/$REAL_USER/Library/Logs/$SERVICE_NAME" # Changed to a user-speci
 SOURCE_DIR=$(pwd)
 
 echo "🚀 Installing frontend as a system-wide service..."
-echo "   - Port: ${PORT}"
+echo "   - Port: ${FRONTEND_PORT}"
 echo "   - Target Dir: ${TARGET_DIR}"
 echo "   - Node Path: ${NODE_PATH}"
 
@@ -75,7 +81,7 @@ cat > "$PLIST_FILE" << EOL
         <string>http-server</string>
         <string>.</string>
         <string>-p</string>
-        <string>${PORT}</string>
+        <string>${FRONTEND_PORT}</string>
         <string>-a</string>
         <string>127.0.0.1</string> <!-- Bind to localhost for reverse proxy -->
         <string>--no-cache</string>
@@ -116,9 +122,9 @@ sudo launchctl bootout system "$PLIST_FILE" 2>/dev/null || true
 sudo launchctl bootstrap system "$PLIST_FILE"
 
 sleep 2
-if curl -s --head http://127.0.0.1:${PORT} > /dev/null; then
+if curl -s --head http://127.0.0.1:${FRONTEND_PORT} > /dev/null; then
     echo ""
-    echo "🎉 Success! The frontend service is now running on localhost:${PORT}."
+    echo "🎉 Success! The frontend service is now running on localhost:${FRONTEND_PORT}."
     echo "   It will be served publicly by the Nginx reverse proxy."
     echo ""
 else

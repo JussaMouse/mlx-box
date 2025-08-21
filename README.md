@@ -64,10 +64,12 @@ Before running the script, there are three required manual steps: setting up DNS
     ```
 
 4.  **Create and Edit Your Configuration File:**
-    Copy the configuration template and customize it with your domain, email, and preferred model.
+    Copy the configuration templates and customize them with your domain, email, and other settings. The `.toml` file is used by the Python services, and the `.env` file is used by the installation scripts.
     ```sh
     cp config/settings.toml.example config/settings.toml
+    cp config/settings.env.example config/settings.env
     hx config/settings.toml
+    hx config/settings.env
     ```
 
 ### 2.3. Running the Installer

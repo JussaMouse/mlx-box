@@ -41,41 +41,6 @@ success() {
     echo "✅ [mlx-box-INSTALL] $1"
 }
 
-# A function to read values from the TOML config file.
-# Usage: local my_var=$(read_toml "services.chat.port")
-read_toml() {
-    local key="$1"
-    # This is a more robust parser that handles TOML sections.
-    local field="${key##*.}"
-    local section_key="${key%.*}"
-    
-    # Awk script to parse the value. It finds the section header (e.g., [services.frontend])
-    # then looks for the key (e.g., port) until it hits the next section or EOF.
-    awk -v section="[${section_key}]" -v key="${field}" '
-        function trim(s) { sub(/^[ \t\r\n]+/, "", s); sub(/[ \t\r\n]+$/, "", s); return s }
-        BEGIN { in_section=0 }
-        {
-            current_line = trim($0)
-            if (current_line == section) { in_section=1; next }
-            if (match(current_line, /^\s*\[.*\]/) && in_section) { exit }
-            if (in_section) {
-                # remove comments
-                sub(/#.*/, "", current_line)
-                current_line = trim(current_line)
-
-                # check if line matches "key = value"
-                if (match(current_line, "^" key "\\s*=")) {
-                    val = substr(current_line, RSTART + RLENGTH)
-                    val = trim(val)
-                    gsub(/^"|"$/, "", val) # remove quotes
-                    print val
-                    exit
-                }
-            }
-        }
-    ' "${PROJECT_DIR}/config/settings.toml"
-}
-
 # --- Main Script ---
 
 log "Starting mlx-box Server provisioning..."
@@ -83,12 +48,14 @@ log "Starting mlx-box Server provisioning..."
 # --- Initial Checks ---
 
 # 1. Check for the configuration file.
-if [ ! -f "${PROJECT_DIR}/config/settings.toml" ]; then
-    log "❌ ERROR: Configuration file not found at '${PROJECT_DIR}/config/settings.toml'."
-    log "   Please copy 'config/settings.toml.example' to 'settings.toml' and customize it first."
+if [ ! -f "${PROJECT_DIR}/config/settings.env" ]; then
+    log "❌ ERROR: Configuration file not found at '${PROJECT_DIR}/config/settings.env'."
+    log "   Please copy 'config/settings.env.example' to 'settings.env' and customize it first."
     exit 1
 fi
-success "Configuration file found."
+# Source the configuration file to load all the variables.
+source "${PROJECT_DIR}/config/settings.env"
+success "Configuration file found and loaded."
 
 # 2. Check for sudo privileges upfront.
 log "This script requires sudo privileges to install system services."
@@ -142,7 +109,6 @@ log "Phase 4: Generating configuration files from settings.toml..."
 
 # 1. Generate Firewall Rules
 log "Generating firewall rules..."
-SSH_PORT=$(read_toml "services.ssh.port")
 cat > "${PROJECT_DIR}/firewall/pf.conf" << EOF
 # Block all incoming traffic by default.
 block in all
@@ -162,11 +128,6 @@ success "firewall/pf.conf has been generated."
 
 # 2. Generate Nginx Configuration
 log "Generating Nginx configuration..."
-DOMAIN_NAME=$(read_toml "server.domain_name")
-FRONTEND_PORT=$(read_toml "services.frontend.port")
-CHAT_PORT=$(read_toml "services.chat.port")
-EMBED_PORT=$(read_toml "services.embedding.port")
-
 # Nginx config will be placed in the Homebrew-managed location
 NGINX_CONF_PATH="/opt/homebrew/etc/nginx/nginx.conf"
 
@@ -227,7 +188,7 @@ success "Python dependencies installed."
 
 # 2. Install AI and Frontend services.
 (cd "${PROJECT_DIR}/models" && sudo ./startup-services-install.sh)
-(cd "${PROJECT_DIR}/frontend" && sudo ./install-service.sh "${FRONTEND_PORT}")
+(cd "${PROJECT_DIR}/frontend" && sudo ./install-service.sh)
 success "Application services installed."
 
 # 3. Install and start Nginx and Firewall.
@@ -238,8 +199,7 @@ success "Nginx and Firewall services started."
 # 4. Obtain SSL Certificate with Certbot
 log "Attempting to obtain SSL certificate with Certbot..."
 log "NOTE: This requires your domain's DNS to be pointing to this server's IP address."
-LE_EMAIL=$(read_toml "server.letsencrypt_email")
-sudo certbot --nginx -d "${DOMAIN_NAME}" --non-interactive --agree-tos -m "${LE_EMAIL}"
+sudo certbot --nginx -d "${DOMAIN_NAME}" --non-interactive --agree-tos -m "${LETSENCRYPT_EMAIL}"
 success "Certbot process complete. Check output for status."
 
 # --- Phase 6: Finalization ---

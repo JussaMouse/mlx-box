@@ -11,6 +11,7 @@ venv/
 # User-specific configuration
 # This directory contains private settings and should be backed up.
 config/settings.toml
+config/settings.env
 
 # Node.js dependencies
 node_modules/
