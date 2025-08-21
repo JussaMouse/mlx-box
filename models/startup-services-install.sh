@@ -17,8 +17,8 @@ fi
 # Get the current user (the one who called sudo)
 REAL_USER=${SUDO_USER:-$(whoami)}
 USER_HOME="/Users/$REAL_USER"
-# Dynamically determine the project directory based on this script's location
-PROJECT_DIR=$(dirname "$0")
+# Dynamically determine the absolute path to the project directory.
+PROJECT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 echo "👤 User: $REAL_USER"
 echo "🏠 Home: $USER_HOME"
