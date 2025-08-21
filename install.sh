@@ -194,7 +194,13 @@ success "Application services installed."
 
 # 3. Install and start Nginx and Firewall.
 (cd "${PROJECT_DIR}/firewall" && sudo ./install-firewall.sh)
-sudo brew services start nginx
+# Use launchctl to manage the nginx service directly for better reliability with sudo.
+log "Starting Nginx service..."
+NGINX_PLIST_SOURCE=$(${BREW_PREFIX}/bin/brew --prefix nginx)/homebrew.mxcl.nginx.plist
+NGINX_PLIST_DEST="/Library/LaunchDaemons/homebrew.mxcl.nginx.plist"
+sudo cp "${NGINX_PLIST_SOURCE}" "${NGINX_PLIST_DEST}"
+sudo launchctl bootout system "${NGINX_PLIST_DEST}" 2>/dev/null || true
+sudo launchctl bootstrap system "${NGINX_PLIST_DEST}"
 success "Nginx and Firewall services started."
 
 # 4. Obtain SSL Certificate with Certbot
