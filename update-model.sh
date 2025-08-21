@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# A script to update the chat model and monitor the download progress.
+# A simple, robust script to update the chat model.
 #
 
 set -e
@@ -23,30 +23,22 @@ success() {
 
 if [ -z "$1" ]; then
   echo "Usage: $0 <huggingface-model-id>"
-  echo "Example: $0 mlx-community/Llama3-8B-Medicine-4bit"
+  echo "Example: $0 mlx-community/Llama-3-8B-Instruct-4bit"
   exit 1
 fi
-MODEL_ID="$1"
+readonly MODEL_ID="$1"
 
 # --- Main Script ---
 
 log "Starting model update process for: ${MODEL_ID}"
 
-# 1. Update the configuration file using a robust awk script.
+# 1. Update the configuration file using a simple sed command.
 log "Updating configuration file at '${CONFIG_FILE}'..."
-# Pass the model_id as an environment variable to awk to handle slashes correctly.
-MODEL_ID="${MODEL_ID}" awk '
-    BEGIN { in_section=0; updated=0; model_id=ENVIRON["MODEL_ID"] }
-    /\[services\.chat\]/ { in_section=1 }
-    /^\s*\[.*\]/ && !/\[services\.chat\]/ { in_section=0 }
-    in_section && /^\s*model\s*=/ {
-        print "  model = \"" model_id "\""
-        updated=1
-        next
-    }
-    { print }
-    END { if (updated==0) { print "[ERROR] 'model =' key not found under [services.chat] section." > "/dev/stderr"; exit 1 } }
-' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+# Escape slashes in the model ID so they don't break the sed command
+ESCAPED_MODEL_ID=$(echo "$MODEL_ID" | sed 's/[/]/\\&/g')
+# Use sed to find the [services.chat] section and replace the model line.
+# This works on macOS's version of sed.
+sed -i '' "/\\[services\\.chat\\]/,/\\[/s/^\\( *model *= *\\).*/\\1\"${ESCAPED_MODEL_ID}\"/" "$CONFIG_FILE"
 success "Configuration updated."
 
 # 2. Restart the chat service to apply the changes.
@@ -59,48 +51,12 @@ REAL_USER=${SUDO_USER:-$(whoami)}
 LOG_FILE="/Users/${REAL_USER}/Library/Logs/${SERVICE_NAME}/stderr.log"
 LOG_DIR=$(dirname "${LOG_FILE}")
 
-log "Tailing log file to monitor download progress..."
-echo "   Log file: ${LOG_FILE}"
-echo "   (Press Ctrl+C to stop monitoring)"
+log "Monitoring download progress. Press Ctrl+C after you see the 'Model loaded' message."
 
-# Ensure the log directory exists before trying to access the file.
+# Ensure the log directory exists and clear the old log file.
 mkdir -p "${LOG_DIR}"
-# Give the service a moment to start and clear the old log.
-sleep 2
-# Clear the log file so we only see the new download progress.
+sleep 2 # Give the service a moment to start up.
 > "$LOG_FILE"
 
-# Use awk to process the log file in real-time and display a progress bar.
-tail -f "$LOG_FILE" | awk '
-    # Look for the huggingface_hub progress line (e.g., "Fetching 1.34/4.95 GB [...]")
-    /Fetching/ && /GB/ {
-        # Extract the downloaded and total size
-        match($0, /([0-9\.]+)\/([0-9\.]+) GB/, parts)
-        downloaded = parts[1]
-        total = parts[2]
-        percent = int(downloaded / total * 100)
-
-        # Extract the speed/ETA part of the line
-        match($0, /\[.*<.*,.*\/s\]/, eta_parts)
-        eta_str = eta_parts[0]
-
-        width = 50
-        filled = int(width * percent / 100)
-        bar = ""
-        for (i = 0; i < filled; i++) bar = bar "█"
-        for (i = width - filled; i > 0; i--) bar = bar " "
-
-        printf "\rDownloading... %3d%% |%s| %s / %s GB %s", percent, bar, downloaded, total, eta_str
-    }
-    # Look for the final "Model loaded" message from the chat server
-    /Model .* loaded/ {
-        print "\n" # Newline to preserve the progress bar
-        print "✅ [MODEL-UPDATER] Model loaded successfully!"
-        # Exit the awk script, which will terminate the tail pipe
-        exit 0
-    }
-'
-
-# In case the awk script exits for any reason, print a final message.
-echo ""
-success "Monitoring complete."
+# Display the raw log file. This is simpler and more reliable than a progress bar.
+tail -f "$LOG_FILE"
