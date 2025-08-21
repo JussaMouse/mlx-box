@@ -226,7 +226,7 @@ success "Python dependencies installed."
 
 # 2. Install AI and Frontend services.
 (cd "${PROJECT_DIR}/models" && sudo ./startup-services-install.sh)
-(cd "${PROJECT_DIR}/frontend" && sudo ./install-service.sh)
+(cd "${PROJECT_DIR}/frontend" && sudo ./install-service.sh "${FRONTEND_PORT}")
 success "Application services installed."
 
 # 3. Install and start Nginx and Firewall.

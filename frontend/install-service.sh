@@ -1,58 +1,15 @@
 #!/bin/bash
 set -e
 
-# --- Helper Functions ---
-
-# A function to read values from the TOML config file.
-# This ensures consistency with the main installer.
-read_toml() {
-    local key="$1"
-    local config_file
-    config_file=$(dirname "$0")/../config/settings.toml
-    if [ ! -f "$config_file" ]; then
-        echo "❌ ERROR: Configuration file not found at ${config_file}" >&2
-        exit 1
-    fi
-
-    local field="${key##*.}"
-    local section_key="${key%.*}"
-    
-    # Awk script to parse the value. It finds the section header (e.g., [services.frontend])
-    # then looks for the key (e.g., port) until it hits the next section or EOF.
-    awk -v section="[${section_key}]" -v key="${field}" '
-        BEGIN { in_section=0 }
-        $0 == section { in_section=1; next }
-        /^\s*\[.*\]/ && in_section { exit }
-        in_section {
-            # remove comments and leading/trailing whitespace from line
-            line = $0
-            sub(/#.*/, "", line)
-            sub(/^\s*/, "", line)
-            sub(/\s*$/, "", line)
-
-            # check if line matches "key = value"
-            if (line ~ "^" key "\\s*=") {
-                val = line
-                sub(/^[^=]+=\s*/, "", val) # remove everything up to and including = and spaces
-                gsub(/^"|"$/, "", val)    # remove quotes
-                gsub(/\s*$/, "", val)     # remove trailing spaces from value
-                print val
-                exit
-            }
-        }
-    ' "${config_file}"
-}
-
-
-# --- Configuration: Read from TOML ---
+# --- Configuration ---
 
 # Use the absolute path to the project root to find the config file
 SERVICE_NAME="com.mlx-box.frontend-server"
-PORT=$(read_toml "services.frontend.port")
+PORT="$1" # Read port from the first command-line argument
 TARGET_DIR=$(dirname "$0") # The directory where this script is located.
 
 if [ -z "$PORT" ]; then
-    echo "❌ ERROR: Could not read 'services.frontend.port' from the config file." >&2
+    echo "❌ ERROR: Port number was not provided as an argument to the script." >&2
     exit 1
 fi
 
