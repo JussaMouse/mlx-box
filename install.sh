@@ -195,7 +195,7 @@ log "Phase 5: Installing and launching all services..."
 
 # 1. Install Python dependencies.
 log "Installing Python dependencies with Poetry..."
-(cd "${PROJECT_DIR}/models" && poetry install)
+(cd "${PROJECT_DIR}/models" && poetry lock --no-update && poetry install)
 success "Python dependencies installed."
 
 # 2. Install AI and Frontend services.
