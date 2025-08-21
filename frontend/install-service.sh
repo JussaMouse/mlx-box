@@ -19,11 +19,22 @@ if [ -z "$FRONTEND_PORT" ]; then
     exit 1
 fi
 
+# Determine the Homebrew prefix for the current architecture.
+# This is necessary because the script is run with sudo.
+if [ -x "/usr/local/bin/brew" ]; then
+    BREW_PREFIX="/usr/local"
+elif [ -x "/opt/homebrew/bin/brew" ]; then
+    BREW_PREFIX="/opt/homebrew"
+else
+    echo "❌ ERROR: Homebrew is not installed in a standard location." >&2
+    exit 1
+fi
+
 # Dynamically find Node.js and npx executables.
 # This is more robust than hardcoding paths.
 # Source nvm from the Homebrew path, which is more reliable under sudo.
-if [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
-    . "/opt/homebrew/opt/nvm/nvm.sh"
+if [ -s "${BREW_PREFIX}/opt/nvm/nvm.sh" ]; then
+    . "${BREW_PREFIX}/opt/nvm/nvm.sh"
 else
     echo "❌ ERROR: Could not source nvm.sh from Homebrew. Is NVM installed correctly?" >&2
     exit 1
@@ -103,7 +114,7 @@ cat > "$PLIST_FILE" << EOL
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>$(dirname "${NODE_PATH}"):/opt/homebrew/bin:/usr/bin:/bin</string>
+        <string>$(dirname "${NODE_PATH}"):${BREW_PREFIX}/bin:/usr/bin:/bin</string>
         <key>HOME</key>
         <string>/Users/${REAL_USER}</string>
     </dict>

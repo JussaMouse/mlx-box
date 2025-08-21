@@ -90,7 +90,8 @@ log "Phase 2: Installing System Prerequisites with Homebrew..."
 if ! command -v brew &> /dev/null; then
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
-eval "$(/opt/homebrew/bin/brew shellenv)"
+BREW_PREFIX=$(brew --prefix)
+eval "$(${BREW_PREFIX}/bin/brew shellenv)"
 for pkg in "${HOMEBREW_PACKAGES[@]}"; do
     if ! brew list --formula | grep -q "^${pkg}\$"; then brew install "${pkg}"; fi
 done
@@ -129,7 +130,7 @@ success "firewall/pf.conf has been generated."
 # 2. Generate Nginx Configuration
 log "Generating Nginx configuration..."
 # Nginx config will be placed in the Homebrew-managed location
-NGINX_CONF_PATH="/opt/homebrew/etc/nginx/nginx.conf"
+NGINX_CONF_PATH="${BREW_PREFIX}/etc/nginx/nginx.conf"
 
 cat > "${NGINX_CONF_PATH}" << EOF
 worker_processes  1;
