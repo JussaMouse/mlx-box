@@ -16,9 +16,10 @@ read_toml() {
     grep "^${key/./\.}" "$config_file" | cut -d'=' -f2 | tr -d ' "'
 }
 
-# --- Configuration ---
-# All settings are now read from the central config file.
-SERVICE_NAME="com.vice.frontend-server"
+# --- Configuration: Read from TOML ---
+
+# Use the absolute path to the project root to find the config file
+SERVICE_NAME="com.mlx-box.frontend-server"
 PORT=$(read_toml "services.frontend.port")
 TARGET_DIR=$(dirname "$0") # The directory where this script is located.
 

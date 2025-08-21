@@ -1,6 +1,6 @@
-# Vice Server & Wooster Agent: Super-System Knowledge Base (v2.0)
+# mlx-box: Super-System Knowledge Base
 
-This document is the central knowledge base for setting up, managing, and backing up the complete Vice AI system on macOS for **production, internet-facing deployment**.
+This document is the central knowledge base for setting up, managing, and backing up the complete mlx-box AI system on macOS for **production, internet-facing deployment**.
 
 ---
 
@@ -17,7 +17,7 @@ This project is architected for security and reliability using a reverse proxy m
 
 ## 2. Full System Provisioning
 
-These steps configure a fresh macOS installation. The `vice-install.sh` script automates this entire section.
+These steps configure a fresh macOS installation. The `install.sh` script automates this entire section.
 
 ### 2.1. Headless Server Configuration
 
@@ -30,14 +30,14 @@ Before running the script, there are three required manual steps: setting up DNS
 1.  **Set Up DNS:**
     For the server to be accessible from the internet via a domain name and for SSL certificates to work, you must configure a DNS 'A' record.
 
-    -   **What is an 'A' Record?** It's a setting at your domain registrar (e.g., GoDaddy, Namecheap, Cloudflare) that points a domain name (like `vice.yourdomain.com`) to a specific IP address.
+    -   **What is an 'A' Record?** It's a setting at your domain registrar (e.g., GoDaddy, Namecheap, Cloudflare) that points a domain name (like `mlx-box.yourdomain.com`) to a specific IP address.
 
     -   **How to do it:**
         1.  Find your server's **public IP address**. You can do this by running `curl ifconfig.me` on the server, or by checking your router's administration page.
         2.  Log in to your domain registrar's website.
         3.  Go to the DNS management section for your domain.
         4.  Create a new 'A' record with the following settings:
-            -   **Host/Name:** `vice` (or whatever subdomain you want)
+            -   **Host/Name:** `mlx-box` (or whatever subdomain you want)
             -   **Value/Points to:** Your server's public IP address.
             -   **TTL (Time to Live):** Set to a low value initially (like 300 seconds) if you are testing.
 
@@ -74,8 +74,8 @@ Before running the script, there are three required manual steps: setting up DNS
 
 With the prerequisites met, run the master script from the project directory:
 ```sh
-chmod +x vice-install.sh
-./vice-install.sh
+chmod +x install.sh
+./install.sh
 ```
 The script is idempotent and safe to re-run. It will install all tools, dynamically generate configuration files (`pf.conf`, `nginx.conf`), install all services, and attempt to obtain an SSL certificate.
 
@@ -101,15 +101,15 @@ This file is the heart of your server's setup.
 
 ## 4. Updating Your Server
 
-To update your server to the latest version of the `vice-server` code, follow this procedure. This process is designed to be safe and to preserve your existing configuration and data.
+To update your server to the latest version of the `mlx-box` code, follow this procedure. This process is designed to be safe and to preserve your existing configuration and data.
 
 ### Step 1: Back Up Your System
 Before any update, perform a full backup of your critical data. This gives you a safe restore point.
 ```sh
 # Navigate to your home directory for the backup file
 cd ~
-# Create a timestamped backup of your config, wooster data, and SSL certs
-sudo tar -czvf vice-backup-$(date +%Y-%m-%d).tar.gz /Users/env/server/config /Users/env/wooster/data /etc/letsencrypt
+# Create a timestamped backup of your config and SSL certs
+sudo tar -czvf mlx-box-backup-$(date +%Y-%m-%d).tar.gz /Users/env/server/config /etc/letsencrypt
 ```
 
 ### Step 2: Fetch the Latest Code
@@ -134,9 +134,9 @@ The new code may require new or updated Python libraries. Run `poetry install` t
 ```
 
 ### Step 5: Re-run the Master Installer
-The `vice-install.sh` script is designed to be safely re-run for updates. It will intelligently apply the latest configurations, restart services, and ensure the system is in the correct state.
+The `install.sh` script is designed to be safely re-run for updates. It will intelligently apply the latest configurations, restart services, and ensure the system is in the correct state.
     ```sh
-    ./vice-install.sh
+    ./install.sh
     ```
 
 ### Step 6: Verify the Update
@@ -146,7 +146,7 @@ After the script completes, check that the services are running and accessible.
 brew services list | grep nginx
 
 # Check the application logs for any errors
-tail -f /Users/env/Library/Logs/com.vice.frontend-server/stderr.log
+tail -f /Users/env/Library/Logs/com.mlx-box.frontend-server/stderr.log
 ```
 
 ---
@@ -157,23 +157,22 @@ The backup strategy separates private user data from public, replaceable code.
 
 ### 5.1. What to Back Up
 -   The entire `config/` directory.
--   The stateful data directory from the `wooster` agent (e.g., `wooster/data/`).
 -   The SSL certificates managed by certbot: `/etc/letsencrypt/`
 -   **System Configurations (for reference):** While the installer script regenerates these, the backups it creates (e.g., in `/opt/homebrew/etc/nginx/`) can be useful.
 
 **Example Backup Command:**
 ```sh
 # Create a timestamped backup archive of critical data
-sudo tar -czvf vice-backup-$(date +%Y-%m-%d).tar.gz /Users/env/server/config /Users/env/wooster/data /etc/letsencrypt
+sudo tar -czvf mlx-box-backup-$(date +%Y-%m-%d).tar.gz /Users/env/server/config /etc/letsencrypt
 ```
 
 ### 5.2. Restore Procedure
-1.  Provision a fresh server using the `vice-install.sh` script (after setting up DNS, SSH, and your `config.toml` file).
+1.  Provision a fresh server using the `install.sh` script (after setting up DNS, SSH, and your `config.toml` file).
 2.  Transfer your latest backup file to the server.
 3.  Unpack the backup archive from the root directory:
     ```sh
-    # This will restore your config, wooster data, and SSL certs
-    sudo tar -xzvf vice-backup-2024-01-01.tar.gz -C /
+    # This will restore your config and SSL certs
+    sudo tar -xzvf mlx-box-backup-2024-01-01.tar.gz -C /
     ```
 4.  Restart the services (`sudo brew services restart nginx`, etc.) to use the restored configurations.
 
