@@ -9,10 +9,9 @@
 
 # --- Configuration ---
 # Hardcoded values for a consistent server setup.
-readonly TARGET_USER="env"
+readonly PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PYTHON_VERSION="3.11.10"
 readonly NODE_VERSION="24.2"
-readonly PROJECT_DIR="/Users/${TARGET_USER}/server"
 readonly HOMEBREW_PACKAGES=(
     "pyenv"
     "pipx"
@@ -34,12 +33,12 @@ set -e
 
 # A function for logging styled output.
 log() {
-    echo "🔵 [VICE-INSTALL] $1"
+    echo "🔵 [mlx-box-INSTALL] $1"
 }
 
 # A function for logging success messages.
 success() {
-    echo "✅ [VICE-INSTALL] $1"
+    echo "✅ [mlx-box-INSTALL] $1"
 }
 
 # A function to read values from the TOML config file.
@@ -52,17 +51,11 @@ read_toml() {
 
 # --- Main Script ---
 
-log "Starting Vice AI Server provisioning..."
+log "Starting mlx-box Server provisioning..."
 
 # --- Initial Checks ---
 
-# 1. Check if running as the correct user.
-if [[ "$(whoami)" != "${TARGET_USER}" ]]; then
-    log "❌ ERROR: This script must be run by the '${TARGET_USER}' user. Current user: $(whoami)."
-    exit 1
-fi
-
-# 2. Check for the configuration file.
+# 1. Check for the configuration file.
 if [ ! -f "${PROJECT_DIR}/config/settings.toml" ]; then
     log "❌ ERROR: Configuration file not found at '${PROJECT_DIR}/config/settings.toml'."
     log "   Please copy 'config/settings.toml.example' to 'settings.toml' and customize it first."
@@ -70,7 +63,7 @@ if [ ! -f "${PROJECT_DIR}/config/settings.toml" ]; then
 fi
 success "Configuration file found."
 
-# 3. Check for sudo privileges upfront.
+# 2. Check for sudo privileges upfront.
 log "This script requires sudo privileges to install system services."
 sudo -v
 if [[ $? -ne 0 ]]; then
@@ -79,7 +72,7 @@ if [[ $? -ne 0 ]]; then
 fi
 log "Sudo privileges confirmed."
 
-# 4. Check for Xcode Command Line Tools.
+# 3. Check for Xcode Command Line Tools.
 if ! xcode-select -p &>/dev/null; then
     log "Xcode Command Line Tools not found. Please install them to continue."
     xcode-select --install
@@ -227,9 +220,9 @@ success "Certbot process complete. Check output for status."
 log "Phase 6: Finalizing setup..."
 SERVER_IP=$(ipconfig getifaddr en0 || ipconfig getifaddr en1 || echo "Not Found")
 success "==============================================="
-success "      Vice Server Provisioning Complete"
+success "      mlx-box Server Provisioning Complete"
 success "==============================================="
 log "Server IP: ${SERVER_IP}"
 log "Public URL: https://${DOMAIN_NAME}"
-log "SSH Command: ssh -p ${SSH_PORT} ${TARGET_USER}@${SERVER_IP}"
+log "SSH Command: ssh -p ${SSH_PORT} $(whoami)@${SERVER_IP}"
 success "Setup is complete."
