@@ -132,7 +132,7 @@ log "Generating Nginx configuration..."
 # Nginx config will be placed in the Homebrew-managed location
 NGINX_CONF_PATH="${BREW_PREFIX}/etc/nginx/nginx.conf"
 
-cat > "${NGINX_CONF_PATH}" << EOF
+sudo bash -c "cat > '${NGINX_CONF_PATH}'" << EOF
 worker_processes  1;
 
 events {
