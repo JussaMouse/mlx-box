@@ -1,0 +1,21 @@
+# macOS system files
+.DS_Store
+*.swp
+
+# Python cache and virtual environments
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# User-specific configuration
+# This directory contains private settings and should be backed up.
+config/
+
+# Node.js dependencies
+node_modules/
+npm-debug.log
+pnpm-lock.yaml
+
+# Log files
+*.log

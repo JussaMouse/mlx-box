@@ -11,19 +11,54 @@ import torch
 from typing import List, Union
 from contextlib import asynccontextmanager
 import logging
+import tomlkit
+import sys
+from pathlib import Path
+
+# --- Configuration Loading ---
+def load_config():
+    """Load settings from the TOML config file."""
+    try:
+        config_path = Path(__file__).parent.parent / "config" / "settings.toml"
+        with open(config_path, "r") as f:
+            return tomlkit.load(f)
+    except FileNotFoundError:
+        logging.error("❌ Configuration file 'config/settings.toml' not found.")
+        logging.error("   Please copy 'config/settings.toml.example' to 'config/settings.toml' and customize it.")
+        sys.exit(1)
+    except Exception as e:
+        logging.error(f"❌ Error loading configuration: {e}")
+        sys.exit(1)
+
+# --- End Configuration Loading ---
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Load configuration from settings.toml
+config = load_config()
+embed_config = config.get("services", {}).get("embedding", {})
+server_config = config.get("server", {})
+
 # Global model instance
 model = None
-model_name = "Qwen/Qwen3-Embedding-4B"
+model_name = embed_config.get("model")
+port = embed_config.get("port", 8081)
+host = server_config.get("host", "127.0.0.1")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     global model, model_name
-    logger.info(f"Loading Qwen3 model: {model_name}")
+
+    if not model_name:
+        logger.error("❌ Model name not specified in 'config/settings.toml' under [services.embedding].")
+        # Use sys.exit in a startup event if necessary, or handle gracefully
+        return
+
+    logger.info(f"Loading embedding model: {model_name}")
     
     # Optimize for Apple Silicon
     device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -45,7 +80,7 @@ app = FastAPI(
 
 class EmbeddingRequest(BaseModel):
     input: Union[str, List[str]]
-    model: str = "Qwen/Qwen3-Embedding-4B"
+    model: str = model_name # Use the loaded model name as default
 
 class EmbeddingResponse(BaseModel):
     object: str = "list"
@@ -124,4 +159,7 @@ async def list_models():
     }
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8081)
+    if not model_name:
+        logger.error("Embedding model name not configured. Exiting.")
+    else:
+        uvicorn.run(app, host=host, port=port)

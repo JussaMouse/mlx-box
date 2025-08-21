@@ -10,6 +10,25 @@ import os
 import time
 import requests
 from pathlib import Path
+import tomlkit
+
+# --- Configuration Loading ---
+def load_config():
+    """Load settings from the TOML config file."""
+    try:
+        config_path = Path(__file__).parent.parent / "config" / "settings.toml"
+        with open(config_path, "r") as f:
+            return tomlkit.load(f)
+    except FileNotFoundError:
+        print("❌ Configuration file 'config/settings.toml' not found.")
+        print("   Please copy 'config/settings.toml.example' to 'config/settings.toml' and customize it.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Error loading configuration: {e}")
+        sys.exit(1)
+
+# --- End Configuration Loading ---
+
 
 def check_mlx_available():
     """Check if MLX is available on this system"""
@@ -69,37 +88,28 @@ def test_server(host="127.0.0.1", port=8080):
 def main():
     """Main function to start the MLX chat server"""
     
+    # Load configuration from settings.toml
+    config = load_config()
+    chat_config = config.get("services", {}).get("chat", {})
+    server_config = config.get("server", {})
+    
+    model_name = chat_config.get("model")
+    port = chat_config.get("port", 8080)
+    host = server_config.get("host", "127.0.0.1")
+
+    if not model_name:
+        print("❌ Model name not specified in 'config/settings.toml' under [services.chat].")
+        sys.exit(1)
+
     # Check if MLX is available
     if not check_mlx_available():
         print("❌ MLX not available. Install with: poetry add mlx mlx-lm")
         sys.exit(1)
     
-    # Configuration
-    model_options = {
-        "4bit": "mlx-community/Qwen2.5-72B-Instruct-4bit",      # ~40GB RAM
-        "8bit": "mlx-community/Qwen2.5-72B-Instruct-8bit",      # ~80GB RAM  
-        "6bit": "mlx-community/Qwen2.5-72B-Instruct-6bit",      # ~60GB RAM
-    }
-    
-    # Default to 4bit for most systems
-    model_name = model_options["4bit"]
-    port = 8080
-    host = "0.0.0.0"
-    
-    # Allow model selection via command line
-    if len(sys.argv) > 1:
-        quant = sys.argv[1].lower()
-        if quant in model_options:
-            model_name = model_options[quant]
-            print(f"Using {quant} quantization: {model_name}")
-        else:
-            print(f"Available quantizations: {list(model_options.keys())}")
-            sys.exit(1)
-    
-    print(f"🚀 Starting MLX server with {model_name}")
+    print(f"🚀 Starting MLX server with model: {model_name}")
     print(f"📍 Server will be available at: http://{host}:{port}")
-    print(f"🔄 This will download the model on first run (~20-40GB)")
-    print(f"⏱️  Model loading may take 2-5 minutes...")
+    print(f"🔄 This will download the model on first run if not cached.")
+    print(f"⏱️  Model loading may take several minutes...")
     print()
     
     # Start the MLX server
@@ -136,7 +146,7 @@ def main():
         "chat": {{
           "enabled": true,
           "baseURL": "http://{host}:{port}/v1",
-          "model": "qwen2.5-72b-instruct",
+          "model": "{model_name}",
           "supportsStreaming": true
         }}
       }}
