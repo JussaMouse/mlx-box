@@ -25,19 +25,45 @@ The script configures macOS for "always-on" server reliability: disabling sleep,
 
 ### 2.2. User Prerequisites
 
-Before running the script, there are two required manual steps: setting up SSH and creating your private configuration file.
+Before running the script, there are three required manual steps: setting up DNS, SSH, and your private configuration file.
 
 1.  **Set Up DNS:**
-    Point your desired domain name (e.g., `vice.yourdomain.com`) to the public IP address of your server. This is required for SSL certificate generation.
+    For the server to be accessible from the internet via a domain name and for SSL certificates to work, you must configure a DNS 'A' record.
 
-2.  **Set Up SSH Access:**
+    -   **What is an 'A' Record?** It's a setting at your domain registrar (e.g., GoDaddy, Namecheap, Cloudflare) that points a domain name (like `vice.yourdomain.com`) to a specific IP address.
+
+    -   **How to do it:**
+        1.  Find your server's **public IP address**. You can do this by running `curl ifconfig.me` on the server, or by checking your router's administration page.
+        2.  Log in to your domain registrar's website.
+        3.  Go to the DNS management section for your domain.
+        4.  Create a new 'A' record with the following settings:
+            -   **Host/Name:** `vice` (or whatever subdomain you want)
+            -   **Value/Points to:** Your server's public IP address.
+            -   **TTL (Time to Live):** Set to a low value initially (like 300 seconds) if you are testing.
+
+    -   **Important:** DNS changes can take anywhere from a few minutes to a few hours to propagate across the internet. You can use a tool like [dnschecker.org](https://dnschecker.org/) to see when your new record is live before running the installer.
+
+2.  **Configure Port Forwarding on Your Router:**
+    To allow external traffic from the internet to reach your server, you must set up port forwarding on your router.
+
+    -   **How to do it:**
+        1.  Find your server's **local IP address** (e.g., `192.168.1.xxx`) by running `ipconfig getifaddr en0` on the server.
+        2.  Log in to your router's administration web page.
+        3.  Find the "Port Forwarding" section (it may be called "Virtual Servers" or similar).
+        4.  Create the following three rules to forward traffic to your server's local IP:
+            -   **SSH:** External Port `333` -> Internal Port `333` (TCP)
+            -   **HTTP:** External Port `80` -> Internal Port `80` (TCP)
+            -   **HTTPS:** External Port `443` -> Internal Port `443` (TCP)
+        5.  Save and apply the changes. Your router may need to reboot.
+
+3.  **Set Up SSH Access:**
     Place your client's public SSH key into the `authorized_keys` file on the server.
     ```sh
     mkdir -p /Users/env/.ssh && echo "ssh-ed25519 AAA..." > /Users/env/.ssh/authorized_keys
     chmod 700 /Users/env/.ssh && chmod 600 /Users/env/.ssh/authorized_keys
     ```
 
-3.  **Create and Edit Your Configuration File:**
+4.  **Create and Edit Your Configuration File:**
     Copy the configuration template and customize it with your domain, email, and preferred model.
     ```sh
     cp config/settings.toml.example config/settings.toml
@@ -51,7 +77,7 @@ With the prerequisites met, run the master script from the project directory:
 chmod +x vice-install.sh
 ./vice-install.sh
 ```
-The script will install all tools, generate all configuration files (`pf.conf`, `nginx.conf`), install all services, and attempt to obtain an SSL certificate.
+The script is idempotent and safe to re-run. It will install all tools, dynamically generate configuration files (`pf.conf`, `nginx.conf`), install all services, and attempt to obtain an SSL certificate.
 
 ---
 
@@ -73,22 +99,52 @@ This file is the heart of your server's setup.
 
 ---
 
-## 4. Backup and Disaster Recovery
+## 4. Updating an Existing Installation
+
+To update your server to the latest version of the `vice-server` code, follow these steps:
+
+1.  **Back Up Your Configuration:** Before starting, it's always wise to back up your critical files:
+    ```sh
+    # This command is detailed further in the Backup section
+    sudo tar -czvf vice-backup-$(date +%Y-%m-%d).tar.gz /Users/env/server/config /etc/letsencrypt
+    ```
+2.  **Pull the Latest Code:**
+    ```sh
+    cd /path/to/your/vice-server
+    git pull origin main # Or the appropriate branch
+    ```
+3.  **Update Dependencies:**
+    Run `poetry install` to ensure your Python dependencies are up to date with any changes in `pyproject.toml`.
+    ```sh
+    cd models && poetry install && cd ..
+    ```
+4.  **Review Configuration Template:**
+    Compare your `config/settings.toml` with the new `config/settings.toml.example`. If there are new settings in the example file, copy them over to your own configuration and customize them.
+5.  **Re-run the Master Installer:**
+    The installer script is designed to be safely re-run for updates. It will automatically back up critical system files it overwrites (like `nginx.conf`) and apply all new configurations and code changes.
+    ```sh
+    ./vice-install.sh
+    ```
+
+---
+
+## 5. Backup and Disaster Recovery
 
 The backup strategy separates private user data from public, replaceable code.
 
-### 4.1. What to Back Up
+### 5.1. What to Back Up
 -   The entire `config/` directory.
 -   The stateful data directory from the `wooster` agent (e.g., `wooster/data/`).
 -   The SSL certificates managed by certbot: `/etc/letsencrypt/`
+-   **System Configurations (for reference):** While the installer script regenerates these, the backups it creates (e.g., in `/opt/homebrew/etc/nginx/`) can be useful.
 
 **Example Backup Command:**
 ```sh
-# Create a timestamped backup archive
+# Create a timestamped backup archive of critical data
 sudo tar -czvf vice-backup-$(date +%Y-%m-%d).tar.gz /Users/env/server/config /Users/env/wooster/data /etc/letsencrypt
 ```
 
-### 4.2. Restore Procedure
+### 5.2. Restore Procedure
 1.  Provision a fresh server using the `vice-install.sh` script (after setting up DNS, SSH, and your `config.toml` file).
 2.  Transfer your latest backup file to the server.
 3.  Unpack the backup archive from the root directory:

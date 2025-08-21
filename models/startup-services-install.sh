@@ -17,7 +17,8 @@ fi
 # Get the current user (the one who called sudo)
 REAL_USER=${SUDO_USER:-$(whoami)}
 USER_HOME="/Users/$REAL_USER"
-PROJECT_DIR="/Users/env/server/models"
+# Dynamically determine the project directory based on this script's location
+PROJECT_DIR=$(dirname "$0")
 
 echo "👤 User: $REAL_USER"
 echo "🏠 Home: $USER_HOME"
@@ -29,13 +30,16 @@ if [ ! -d "$PROJECT_DIR" ]; then
     exit 1
 fi
 
-# Check if Poetry is installed
-if ! command -v poetry &> /dev/null; then
-    echo "❌ Poetry not found. Please install Poetry first."
-    exit 1
+# Dynamically find the poetry executable
+if ! POETRY_PATH=$(which poetry); then
+    # Fallback for non-interactive shells where .zshrc might not be sourced
+    if [ -f "$USER_HOME/.local/bin/poetry" ]; then
+        POETRY_PATH="$USER_HOME/.local/bin/poetry"
+    else
+        echo "❌ Poetry not found. Please ensure Poetry is installed and in your PATH."
+        exit 1
+    fi
 fi
-
-POETRY_PATH=$(which poetry)
 echo "📦 Poetry: $POETRY_PATH"
 
 # Create log directory
@@ -102,7 +106,7 @@ cat > /Library/LaunchDaemons/com.local.mlx-chat-server.plist << EOF
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin</string>
+        <string>$(dirname "$POETRY_PATH"):/opt/homebrew/bin:/usr/bin:/bin</string>
         <key>HOME</key>
         <string>$USER_HOME</string>
     </dict>
@@ -154,7 +158,7 @@ cat > /Library/LaunchDaemons/com.local.embed-server.plist << EOF
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin</string>
+        <string>$(dirname "$POETRY_PATH"):/opt/homebrew/bin:/usr/bin:/bin</string>
         <key>HOME</key>
         <string>$USER_HOME</string>
     </dict>

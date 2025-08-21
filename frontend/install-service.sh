@@ -1,12 +1,40 @@
 #!/bin/bash
 set -e
 
+# --- Helper Functions ---
+
+# A function to read values from the TOML config file.
+# This ensures consistency with the main installer.
+read_toml() {
+    local key=$1
+    local config_file
+    config_file=$(dirname "$0")/../config/settings.toml
+    if [ ! -f "$config_file" ]; then
+        echo "❌ ERROR: Configuration file not found at ${config_file}" >&2
+        exit 1
+    fi
+    grep "^${key/./\.}" "$config_file" | cut -d'=' -f2 | tr -d ' "'
+}
+
 # --- Configuration ---
-TARGET_DIR="/Users/env/server/frontend"
+# All settings are now read from the central config file.
 SERVICE_NAME="com.vice.frontend-server"
-PORT=8000
-NODE_PATH="/Users/env/.nvm/versions/node/v24.2.0/bin/node"
-NPX_PATH="/Users/env/.nvm/versions/node/v24.2.0/bin/npx"
+PORT=$(read_toml "services.frontend.port")
+TARGET_DIR=$(dirname "$0") # The directory where this script is located.
+
+# Dynamically find Node.js and npx executables.
+# This is more robust than hardcoding paths.
+if ! NVM_DIR="$HOME/.nvm" [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; then
+    echo "❌ ERROR: Could not source nvm.sh. Is NVM installed correctly?" >&2
+    exit 1
+fi
+NODE_PATH=$(which node)
+NPX_PATH=$(which npx)
+
+if [ -z "$NODE_PATH" ] || [ -z "$NPX_PATH" ]; then
+    echo "❌ ERROR: Could not find 'node' or 'npx' in the PATH after sourcing NVM." >&2
+    exit 1
+fi
 # --- End Configuration ---
 
 if [ "$EUID" -ne 0 ]; then
@@ -18,25 +46,15 @@ fi
 REAL_USER=${SUDO_USER:-$(whoami)}
 PLIST_DIR="/Library/LaunchDaemons"
 PLIST_FILE="$PLIST_DIR/$SERVICE_NAME.plist"
-LOG_DIR="$HOME/Library/Logs/$SERVICE_NAME"
+LOG_DIR="/Users/$REAL_USER/Library/Logs/$SERVICE_NAME" # Changed to a user-specific log dir
 SOURCE_DIR=$(pwd)
 
-echo "🚀 Installing frontend as a system-wide service (using Node.js)..."
+echo "🚀 Installing frontend as a system-wide service..."
+echo "   - Port: ${PORT}"
+echo "   - Target Dir: ${TARGET_DIR}"
+echo "   - Node Path: ${NODE_PATH}"
 
-if ! command -v $NPX_PATH &> /dev/null; then
-    echo "❌ Error: npx not found at $NPX_PATH"
-    exit 1
-fi
-echo "✅ npx is available."
-
-echo "🖥️  Ensuring frontend files are in $TARGET_DIR..."
-if [ "$SOURCE_DIR" != "$TARGET_DIR" ]; then
-    mkdir -p "$TARGET_DIR"
-    cp -R "${SOURCE_DIR}/" "$TARGET_DIR/"
-    echo "    ✅ Frontend files copied successfully."
-else
-    echo "    -> Already in target directory. Skipping file copy."
-fi
+# (Removed file copy section as the service now runs directly from the project dir)
 
 echo "🪵  Ensuring log directory exists at $LOG_DIR..."
 mkdir -p "$LOG_DIR"
@@ -45,11 +63,7 @@ touch "${LOG_DIR}/stdout.log" "${LOG_DIR}/stderr.log"
 chmod 644 "${LOG_DIR}/stdout.log" "${LOG_DIR}/stderr.log"
 echo "    ✅ Log directory is ready."
 
-echo "🔒 Updating firewall rule for Node.js..."
-/usr/libexec/ApplicationFirewall/socketfilterfw --remove /opt/homebrew/bin/python3 > /dev/null 2>&1 || true
-/usr/libexec/ApplicationFirewall/socketfilterfw --add $NODE_PATH > /dev/null 2>&1 || true
-/usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp $NODE_PATH > /dev/null 2>&1 || true
-echo "    ✅ Firewall rule is in place for Node.js."
+# (Firewall section removed - this is now handled by the main installer and pf.conf)
 
 echo "📝 Creating LaunchDaemon service file at $PLIST_FILE..."
 
@@ -68,7 +82,7 @@ cat > "$PLIST_FILE" << EOL
         <string>-p</string>
         <string>${PORT}</string>
         <string>-a</string>
-        <string>0.0.0.0</string>
+        <string>127.0.0.1</string> <!-- Bind to localhost for reverse proxy -->
         <string>--no-cache</string>
     </array>
     <key>RunAtLoad</key>
@@ -88,7 +102,7 @@ cat > "$PLIST_FILE" << EOL
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/Users/env/.nvm/versions/node/v24.2.0/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <string>$(dirname "${NODE_PATH}"):/opt/homebrew/bin:/usr/bin:/bin</string>
         <key>HOME</key>
         <string>/Users/${REAL_USER}</string>
     </dict>
@@ -102,23 +116,19 @@ chown root:wheel "$PLIST_FILE"
 chmod 644 "$PLIST_FILE"
 
 echo "🔄 Loading service..."
-launchctl unload "$PLIST_FILE" 2>/dev/null || true
-launchctl load "$PLIST_FILE"
+# Use bootout/bootstrap for modern, reliable service loading
+sudo launchctl bootout system "$PLIST_FILE" 2>/dev/null || true
+sudo launchctl bootstrap system "$PLIST_FILE"
 
 sleep 2
-if curl -s --head http://localhost:${PORT} > /dev/null; then
+if curl -s --head http://127.0.0.1:${PORT} > /dev/null; then
     echo ""
-    echo "🎉 Success! The frontend service is now running."
-    echo "🔗 Open http://<server-ip>:${PORT} in your browser."
+    echo "🎉 Success! The frontend service is now running on localhost:${PORT}."
+    echo "   It will be served publicly by the Nginx reverse proxy."
     echo ""
-    echo "---"
-    echo "To manage the service:"
-    echo "  - Stop:    sudo launchctl unload '${PLIST_FILE}'"
-    echo "  - Start:   sudo launchctl load '${PLIST_FILE}'"
-    echo "---"
 else
     echo "❌ Error: Failed to start the frontend service."
-    echo "Please check the logs for more details: ${LOG_DIR}/stderr.log"
+    echo "   Please check the logs for more details: ${LOG_DIR}/stderr.log"
     exit 1
 fi
 
