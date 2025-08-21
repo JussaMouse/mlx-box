@@ -26,7 +26,7 @@ if [ -z "$1" ]; then
   echo "Example: $0 mlx-community/Llama3-8B-Medicine-4bit"
   exit 1
 fi
-readonly MODEL_ID="$1"
+MODEL_ID="$1"
 
 # --- Main Script ---
 
