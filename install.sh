@@ -131,8 +131,9 @@ success "firewall/pf.conf has been generated."
 log "Generating Nginx configuration..."
 # Nginx config will be placed in the Homebrew-managed location
 NGINX_CONF_PATH="${BREW_PREFIX}/etc/nginx/nginx.conf"
+TEMP_NGINX_CONF_PATH="${PROJECT_DIR}/config/nginx.conf.generated"
 
-sudo bash -c "cat > '${NGINX_CONF_PATH}'" << EOF
+cat > "${TEMP_NGINX_CONF_PATH}" << EOF
 worker_processes  1;
 
 events {
@@ -176,6 +177,13 @@ http {
     }
 }
 EOF
+
+# Ensure the target directory exists and then copy the file with sudo.
+# This is more reliable than using sudo with a heredoc.
+sudo mkdir -p "$(dirname "${NGINX_CONF_PATH}")"
+sudo cp "${TEMP_NGINX_CONF_PATH}" "${NGINX_CONF_PATH}"
+rm "${TEMP_NGINX_CONF_PATH}"
+
 success "Nginx configuration has been generated."
 
 
