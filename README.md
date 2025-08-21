@@ -99,32 +99,55 @@ This file is the heart of your server's setup.
 
 ---
 
-## 4. Updating an Existing Installation
+## 4. Updating Your Server
 
-To update your server to the latest version of the `vice-server` code, follow these steps:
+To update your server to the latest version of the `vice-server` code, follow this procedure. This process is designed to be safe and to preserve your existing configuration and data.
 
-1.  **Back Up Your Configuration:** Before starting, it's always wise to back up your critical files:
+### Step 1: Back Up Your System
+Before any update, perform a full backup of your critical data. This gives you a safe restore point.
+```sh
+# Navigate to your home directory for the backup file
+cd ~
+# Create a timestamped backup of your config, wooster data, and SSL certs
+sudo tar -czvf vice-backup-$(date +%Y-%m-%d).tar.gz /Users/env/server/config /Users/env/wooster/data /etc/letsencrypt
+```
+
+### Step 2: Fetch the Latest Code
+Navigate to the project directory and pull the latest changes from the Git repository.
     ```sh
-    # This command is detailed further in the Backup section
-    sudo tar -czvf vice-backup-$(date +%Y-%m-%d).tar.gz /Users/env/server/config /etc/letsencrypt
+    cd /Users/env/server
+    git pull origin main # Or your primary branch
     ```
-2.  **Pull the Latest Code:**
-    ```sh
-    cd /path/to/your/vice-server
-    git pull origin main # Or the appropriate branch
-    ```
-3.  **Update Dependencies:**
-    Run `poetry install` to ensure your Python dependencies are up to date with any changes in `pyproject.toml`.
-    ```sh
-    cd models && poetry install && cd ..
-    ```
-4.  **Review Configuration Template:**
-    Compare your `config/settings.toml` with the new `config/settings.toml.example`. If there are new settings in the example file, copy them over to your own configuration and customize them.
-5.  **Re-run the Master Installer:**
-    The installer script is designed to be safely re-run for updates. It will automatically back up critical system files it overwrites (like `nginx.conf`) and apply all new configurations and code changes.
+
+### Step 3: Review Configuration Changes
+New versions of the server may introduce new settings. It's crucial to compare your private configuration with the new template.
+```sh
+# Use the 'diff' command to see what's new in the example file
+diff config/settings.toml config/settings.toml.example
+```
+After reviewing the differences, manually copy any new settings from the `.example` file into your main `config/settings.toml` and configure them.
+
+### Step 4: Update Dependencies
+The new code may require new or updated Python libraries. Run `poetry install` to sync your environment.
+```sh
+(cd models && poetry install)
+```
+
+### Step 5: Re-run the Master Installer
+The `vice-install.sh` script is designed to be safely re-run for updates. It will intelligently apply the latest configurations, restart services, and ensure the system is in the correct state.
     ```sh
     ./vice-install.sh
     ```
+
+### Step 6: Verify the Update
+After the script completes, check that the services are running and accessible.
+```sh
+# Check the status of the Nginx service
+brew services list | grep nginx
+
+# Check the application logs for any errors
+tail -f /Users/env/Library/Logs/com.vice.frontend-server/stderr.log
+```
 
 ---
 
