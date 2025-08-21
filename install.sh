@@ -127,14 +127,56 @@ pass in proto tcp from any to any port 443
 EOF
 success "firewall/pf.conf has been generated."
 
-# 2. Generate Nginx Configuration
-log "Generating Nginx configuration..."
-# Nginx config will be placed in the Homebrew-managed location
+# 2. Generate Nginx Configuration (Phase 1: Temporary for Certbot)
+log "Generating temporary Nginx configuration for Certbot..."
 NGINX_CONF_PATH="${BREW_PREFIX}/etc/nginx/nginx.conf"
-TEMP_NGINX_CONF_PATH="${PROJECT_DIR}/config/nginx.conf.generated"
 CERTBOT_WEBROOT="/var/www/certbot"
 
-cat > "${TEMP_NGINX_CONF_PATH}" << EOF
+# Ensure Nginx log directory exists with correct permissions
+sudo mkdir -p "${BREW_PREFIX}/var/log/nginx"
+sudo chown -R "$(whoami):admin" "${BREW_PREFIX}/var/log/nginx"
+
+cat > "${NGINX_CONF_PATH}" << EOF
+worker_processes  1;
+events {
+    worker_connections  1024;
+}
+http {
+    server {
+        listen      80;
+        server_name ${DOMAIN_NAME};
+        location /.well-known/acme-challenge/ {
+            root ${CERTBOT_WEBROOT};
+        }
+    }
+}
+EOF
+success "Temporary Nginx configuration has been generated."
+
+# 3. Install and start services (Nginx is started here)
+(cd "${PROJECT_DIR}/models" && sudo ./startup-services-install.sh)
+(cd "${PROJECT_DIR}/frontend" && sudo ./install-service.sh)
+success "Application services installed."
+
+(cd "${PROJECT_DIR}/firewall" && sudo ./install-firewall.sh)
+log "Starting Nginx service with temporary config..."
+NGINX_PLIST_SOURCE=$(${BREW_PREFIX}/bin/brew --prefix nginx)/homebrew.mxcl.nginx.plist
+NGINX_PLIST_DEST="/Library/LaunchDaemons/homebrew.mxcl.nginx.plist"
+sudo cp "${NGINX_PLIST_SOURCE}" "${NGINX_PLIST_DEST}"
+sudo launchctl bootout system "${NGINX_PLIST_DEST}" 2>/dev/null || true
+sudo launchctl bootstrap system "${NGINX_PLIST_DEST}"
+success "Nginx and Firewall services started."
+sleep 5 # Give Nginx a moment to start up
+
+# 4. Obtain SSL Certificate with Certbot
+log "Attempting to obtain SSL certificate with Certbot..."
+sudo mkdir -p "${CERTBOT_WEBROOT}"
+sudo certbot certonly --webroot -w "${CERTBOT_WEBROOT}" -d "${DOMAIN_NAME}" --non-interactive --agree-tos -m "${LETSENCRYPT_EMAIL}"
+success "Certbot process complete."
+
+# 5. Generate Nginx Configuration (Phase 2: Final Production Config)
+log "Generating final Nginx production configuration..."
+cat > "${NGINX_CONF_PATH}" << EOF
 worker_processes  1;
 
 events {
@@ -147,17 +189,14 @@ http {
     sendfile        on;
     keepalive_timeout  65;
 
-    # HTTP server for redirecting to HTTPS and handling ACME challenges
+    # HTTP server for redirecting to HTTPS
     server {
         listen      80;
         server_name ${DOMAIN_NAME};
-
-        # Handle Let's Encrypt ACME challenge
+        # Handle Let's Encrypt ACME challenge (optional, but good practice)
         location /.well-known/acme-challenge/ {
             root ${CERTBOT_WEBROOT};
         }
-
-        # Redirect all other traffic to HTTPS
         location / {
             return 301 https://\$host\$request_uri;
         }
@@ -168,7 +207,7 @@ http {
         listen 443 ssl;
         server_name ${DOMAIN_NAME};
 
-        # SSL certs will be managed by certbot
+        # SSL certs are now available
         ssl_certificate /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem;
         ssl_certificate_key /etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem;
         include /etc/letsencrypt/options-ssl-nginx.conf;
@@ -180,57 +219,22 @@ http {
             proxy_set_header X-Real-IP \$remote_addr;
         }
 
-        location /v1/ { # Catches both /v1/chat/ and /v1/embeddings/
-            proxy_pass http://127.0.0.1:${CHAT_PORT}; # Assuming both API servers can be reached via one port or need specific routing
-            # A more complex setup might be needed if ports are different
+        location /v1/ {
+            proxy_pass http://127.0.0.1:${CHAT_PORT};
         }
     }
 }
 EOF
+success "Final Nginx configuration has been generated."
 
-# Ensure the target directory exists and then copy the file with sudo.
-# This is more reliable than using sudo with a heredoc.
-sudo mkdir -p "$(dirname "${NGINX_CONF_PATH}")"
-sudo cp "${TEMP_NGINX_CONF_PATH}" "${NGINX_CONF_PATH}"
-rm "${TEMP_NGINX_CONF_PATH}"
-
-success "Nginx configuration has been generated."
+# 6. Restart Nginx to apply final config
+log "Restarting Nginx to apply final production configuration..."
+sudo launchctl kickstart -k system/homebrew.mxcl.nginx
+success "Nginx has been restarted."
 
 
-# --- Phase 5: Project Service Installation ---
-log "Phase 5: Installing and launching all services..."
-
-# 1. Install Python dependencies.
-log "Installing Python dependencies with Poetry..."
-(cd "${PROJECT_DIR}/models" && poetry lock && poetry install --no-root)
-success "Python dependencies installed."
-
-# 2. Install AI and Frontend services.
-(cd "${PROJECT_DIR}/models" && sudo ./startup-services-install.sh)
-(cd "${PROJECT_DIR}/frontend" && sudo ./install-service.sh)
-success "Application services installed."
-
-# 3. Install and start Nginx and Firewall.
-(cd "${PROJECT_DIR}/firewall" && sudo ./install-firewall.sh)
-# Use launchctl to manage the nginx service directly for better reliability with sudo.
-log "Starting Nginx service..."
-NGINX_PLIST_SOURCE=$(${BREW_PREFIX}/bin/brew --prefix nginx)/homebrew.mxcl.nginx.plist
-NGINX_PLIST_DEST="/Library/LaunchDaemons/homebrew.mxcl.nginx.plist"
-sudo cp "${NGINX_PLIST_SOURCE}" "${NGINX_PLIST_DEST}"
-sudo launchctl bootout system "${NGINX_PLIST_DEST}" 2>/dev/null || true
-sudo launchctl bootstrap system "${NGINX_PLIST_DEST}"
-success "Nginx and Firewall services started."
-
-# 4. Obtain SSL Certificate with Certbot
-log "Attempting to obtain SSL certificate with Certbot..."
-log "NOTE: This requires your domain's DNS to be pointing to this server's IP address."
-# Create the webroot directory for Certbot challenges
-sudo mkdir -p "${CERTBOT_WEBROOT}"
-sudo certbot certonly --webroot -w "${CERTBOT_WEBROOT}" -d "${DOMAIN_NAME}" --non-interactive --agree-tos -m "${LETSENCRYPT_EMAIL}" --deploy-hook "sudo launchctl kickstart -k system/homebrew.mxcl.nginx"
-success "Certbot process complete. Check output for status."
-
-# --- Phase 6: Finalization ---
-log "Phase 6: Finalizing setup..."
+# --- Phase 7: Finalization ---
+log "Phase 7: Finalizing setup..."
 SERVER_IP=$(ipconfig getifaddr en0 || ipconfig getifaddr en1 || echo "Not Found")
 success "==============================================="
 success "      mlx-box Server Provisioning Complete"
