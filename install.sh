@@ -44,9 +44,25 @@ success() {
 # A function to read values from the TOML config file.
 # Usage: local my_var=$(read_toml "services.chat.port")
 read_toml() {
-    local key=$1
-    # This is a simple parser. For production, a more robust parser might be better.
-    grep "^${key/./\.}" "${PROJECT_DIR}/config/settings.toml" | cut -d'=' -f2 | tr -d ' "'
+    local key="$1"
+    # This is a more robust parser that handles TOML sections.
+    local field="${key##*.}"
+    local section_key="${key%.*}"
+    
+    # Awk script to parse the value. It finds the section header (e.g., [services.frontend])
+    # then looks for the key (e.g., port) until it hits the next section or EOF.
+    awk -v section="[${section_key}]" -v field="^${field} " '
+        BEGIN { in_section=0 }
+        $0 == section { in_section=1; next }
+        /\[.*\]/ && in_section { exit; } # Exit if we are in section and find a new one
+        in_section && $0 ~ field {
+            val=$0
+            sub(/^.*= */, "", val)
+            gsub(/^"|"$/, "", val)
+            print val
+            exit
+        }
+    ' "${PROJECT_DIR}/config/settings.toml"
 }
 
 # --- Main Script ---

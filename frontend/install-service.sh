@@ -6,15 +6,33 @@ set -e
 # A function to read values from the TOML config file.
 # This ensures consistency with the main installer.
 read_toml() {
-    local key=$1
+    local key="$1"
     local config_file
     config_file=$(dirname "$0")/../config/settings.toml
     if [ ! -f "$config_file" ]; then
         echo "❌ ERROR: Configuration file not found at ${config_file}" >&2
         exit 1
     fi
-    grep "^${key/./\.}" "$config_file" | cut -d'=' -f2 | tr -d ' "'
+
+    local field="${key##*.}"
+    local section_key="${key%.*}"
+    
+    # Awk script to parse the value. It finds the section header (e.g., [services.frontend])
+    # then looks for the key (e.g., port) until it hits the next section or EOF.
+    awk -v section="[${section_key}]" -v field="^${field} " '
+        BEGIN { in_section=0 }
+        $0 == section { in_section=1; next }
+        /\[.*\]/ && in_section { exit; } # Exit if we are in section and find a new one
+        in_section && $0 ~ field {
+            val=$0
+            sub(/^.*= */, "", val)
+            gsub(/^"|"$/, "", val)
+            print val
+            exit
+        }
+    ' "${config_file}"
 }
+
 
 # --- Configuration: Read from TOML ---
 
@@ -64,6 +82,7 @@ echo "🪵  Ensuring log directory exists at $LOG_DIR..."
 mkdir -p "$LOG_DIR"
 chown "$REAL_USER" "$LOG_DIR"
 touch "${LOG_DIR}/stdout.log" "${LOG_DIR}/stderr.log"
+chown "$REAL_USER" "${LOG_DIR}/stdout.log" "${LOG_DIR}/stderr.log"
 chmod 644 "${LOG_DIR}/stdout.log" "${LOG_DIR}/stderr.log"
 echo "    ✅ Log directory is ready."
 
