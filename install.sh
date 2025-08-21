@@ -132,6 +132,7 @@ log "Generating Nginx configuration..."
 # Nginx config will be placed in the Homebrew-managed location
 NGINX_CONF_PATH="${BREW_PREFIX}/etc/nginx/nginx.conf"
 TEMP_NGINX_CONF_PATH="${PROJECT_DIR}/config/nginx.conf.generated"
+CERTBOT_WEBROOT="/var/www/certbot"
 
 cat > "${TEMP_NGINX_CONF_PATH}" << EOF
 worker_processes  1;
@@ -146,11 +147,20 @@ http {
     sendfile        on;
     keepalive_timeout  65;
 
-    # Redirect HTTP to HTTPS
+    # HTTP server for redirecting to HTTPS and handling ACME challenges
     server {
         listen      80;
         server_name ${DOMAIN_NAME};
-        return 301 https://\$host\$request_uri;
+
+        # Handle Let's Encrypt ACME challenge
+        location /.well-known/acme-challenge/ {
+            root ${CERTBOT_WEBROOT};
+        }
+
+        # Redirect all other traffic to HTTPS
+        location / {
+            return 301 https://\$host\$request_uri;
+        }
     }
 
     # Main HTTPS server
@@ -186,13 +196,6 @@ rm "${TEMP_NGINX_CONF_PATH}"
 
 success "Nginx configuration has been generated."
 
-# --- DIAGNOSTIC STEP ---
-log "Running diagnostics to check Nginx configuration..."
-ls -laR "${BREW_PREFIX}/etc/nginx/"
-log "Diagnostics complete. Please share the output above. Exiting for review."
-exit 1
-# --- END DIAGNOSTIC STEP ---
-
 
 # --- Phase 5: Project Service Installation ---
 log "Phase 5: Installing and launching all services..."
@@ -221,11 +224,12 @@ success "Nginx and Firewall services started."
 # 4. Obtain SSL Certificate with Certbot
 log "Attempting to obtain SSL certificate with Certbot..."
 log "NOTE: This requires your domain's DNS to be pointing to this server's IP address."
-sudo certbot --nginx -d "${DOMAIN_NAME}" --non-interactive --agree-tos -m "${LETSENCRYPT_EMAIL}"
+# Create the webroot directory for Certbot challenges
+sudo mkdir -p "${CERTBOT_WEBROOT}"
+sudo certbot certonly --webroot -w "${CERTBOT_WEBROOT}" -d "${DOMAIN_NAME}" --non-interactive --agree-tos -m "${LETSENCRYPT_EMAIL}" --deploy-hook "sudo launchctl kickstart -k system/homebrew.mxcl.nginx"
 success "Certbot process complete. Check output for status."
 
 # --- Phase 6: Finalization ---
-# (This phase is simplified for brevity in this example)
 log "Phase 6: Finalizing setup..."
 SERVER_IP=$(ipconfig getifaddr en0 || ipconfig getifaddr en1 || echo "Not Found")
 success "==============================================="
