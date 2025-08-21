@@ -10,7 +10,7 @@ venv/
 
 # User-specific configuration
 # This directory contains private settings and should be backed up.
-config/
+config/settings.toml
 
 # Node.js dependencies
 node_modules/

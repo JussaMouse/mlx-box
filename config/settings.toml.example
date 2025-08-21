@@ -1,0 +1,41 @@
+# vice-server Configuration File
+#
+# This is an example configuration. Copy this file to 'settings.toml'
+# in the same directory and edit it to match your setup.
+# The 'settings.toml' file is ignored by Git and should be backed up.
+#
+
+[server]
+# The public domain name for this server (e.g., "vice.mydomain.com").
+# This is REQUIRED for obtaining an SSL certificate with Let's Encrypt.
+domain_name = "vice.example.com"
+
+# The email address to use for Let's Encrypt SSL registration and recovery.
+letsencrypt_email = "you@example.com"
+
+# The host IP the application services will bind to.
+# For a secure, internet-facing server using a reverse proxy,
+# this MUST be "127.0.0.1".
+host = "127.0.0.1"
+
+[services]
+  # Configuration for the secure shell (SSH) service.
+  [services.ssh]
+  port = 333
+
+  # Configuration for the Chat/LLM service.
+  [services.chat]
+  port = 8080
+  # The default Hugging Face model to use.
+  # This can be any model from the mlx-community library.
+  model = "mlx-community/Qwen2.5-72B-Instruct-4bit"
+
+  # Configuration for the Embedding service.
+  [services.embedding]
+  port = 8081
+  # The SentenceTransformer model to use for embeddings.
+  model = "Qwen/Qwen3-Embedding-4B"
+
+  # Configuration for the Frontend web service.
+  [services.frontend]
+  port = 8000
