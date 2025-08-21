@@ -186,6 +186,13 @@ rm "${TEMP_NGINX_CONF_PATH}"
 
 success "Nginx configuration has been generated."
 
+# --- DIAGNOSTIC STEP ---
+log "Running diagnostics to check Nginx configuration..."
+ls -laR "${BREW_PREFIX}/etc/nginx/"
+log "Diagnostics complete. Please share the output above. Exiting for review."
+exit 1
+# --- END DIAGNOSTIC STEP ---
+
 
 # --- Phase 5: Project Service Installation ---
 log "Phase 5: Installing and launching all services..."
