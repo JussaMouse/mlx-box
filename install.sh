@@ -161,6 +161,8 @@ EOF
 success "Temporary Nginx configuration has been generated."
 
 # 3. Install and start services (Nginx is started here)
+chmod +x "${PROJECT_DIR}/models/startup-services-install.sh" 2>/dev/null || true
+chmod +x "${PROJECT_DIR}/frontend/install-service.sh" 2>/dev/null || true
 (cd "${PROJECT_DIR}/models" && sudo ./startup-services-install.sh)
 (cd "${PROJECT_DIR}/frontend" && sudo ./install-service.sh)
 success "Application services installed."
