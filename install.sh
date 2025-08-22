@@ -137,6 +137,7 @@ success "firewall/pf.conf has been generated."
 log "Generating temporary Nginx configuration for Certbot..."
 NGINX_CONF_PATH="${BREW_PREFIX}/etc/nginx/nginx.conf"
 CERTBOT_WEBROOT="/var/www/certbot"
+ALLOWED_IPS=$(grep -E '^ALLOWED_IPS=' "${PROJECT_DIR}/config/settings.env" | cut -d= -f2 | tr -d '"')
 
 # Ensure Nginx log directory exists with correct permissions
 sudo mkdir -p "${BREW_PREFIX}/var/log/nginx"
@@ -218,6 +219,12 @@ http {
         ssl_certificate_key /etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem;
         include /etc/letsencrypt/options-ssl-nginx.conf;
         ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+        # Optional IP allowlist on 443
+        $( [ -n "${ALLOWED_IPS}" ] && echo "satisfy any;" )
+        $( [ -n "${ALLOWED_IPS}" ] && echo "# allowlist generated from settings.env" )
+        $( for ip in $(echo "${ALLOWED_IPS}" | tr ',' ' '); do [ -n "$ip" ] && echo "allow $ip;"; done )
+        $( [ -n "${ALLOWED_IPS}" ] && echo "deny all;" )
 
         location / {
             proxy_pass http://127.0.0.1:${FRONTEND_PORT};
