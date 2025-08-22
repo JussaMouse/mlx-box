@@ -1,45 +1,6 @@
-# mlx-box
+# mlx-box: Super-System Knowledge Base
 
-Production-ready macOS server for running local AI behind Nginx with SSL, firewall, and system services.
-
-## Quick Start
-1) Prepare config:
-```sh
-cp config/settings.toml.example config/settings.toml
-cp config/settings.env.example config/settings.env
-hx config/settings.toml
-hx config/settings.env
-```
-2) DNS: Point your domain A record to the server's public IP. Confirm:
-```sh
-curl ifconfig.me
-```
-3) Install:
-```sh
-chmod +x install.sh
-./install.sh
-```
-4) Verify:
-```sh
-sudo launchctl list | egrep 'nginx|mlx|frontend'
-BREW_PREFIX=$(brew --prefix)
-sudo nginx -T -c "$BREW_PREFIX/etc/nginx/nginx.conf" | egrep -n 'listen 443|allow |deny all'
-curl -I http://127.0.0.1:80
-curl -I https://YOUR.DOMAIN --resolve YOUR.DOMAIN:443:$(curl -s ifconfig.me)
-```
-5) First model switch (optional):
-```sh
-chmod +x update-model.sh
-./update-model.sh mlx-community/Llama-3-8B-Instruct-4bit
-```
-
-### What gets installed
-- Nginx (reverse proxy, SSL via certbot webroot, optional allowlist/basic auth)
-- pf firewall (opens only SSH, 80, 443)
-- AI services (chat and embed) as LaunchDaemons
-- Static frontend as LaunchAgent/Daemon
-- Poetry-managed Python env in `models/`
-- System report saved under `reports/` after successful install
+This document is the central knowledge base for setting up, managing, and backing up the complete mlx-box AI system on macOS for **production, internet-facing deployment**.
 
 ---
 
