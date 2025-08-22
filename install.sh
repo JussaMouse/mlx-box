@@ -186,6 +186,27 @@ success "Certbot process complete."
 
 # 5. Generate Nginx Configuration (Phase 2: Final Production Config)
 log "Generating final Nginx production configuration..."
+
+# Hardened TLS defaults: try to install recommended options and dhparams
+sudo mkdir -p /etc/letsencrypt
+# Try to copy options-ssl-nginx.conf from Homebrew if present
+if [ -f "/opt/homebrew/etc/letsencrypt/options-ssl-nginx.conf" ]; then
+  sudo cp -f "/opt/homebrew/etc/letsencrypt/options-ssl-nginx.conf" /etc/letsencrypt/ || true
+elif [ -f "${BREW_PREFIX}/etc/letsencrypt/options-ssl-nginx.conf" ]; then
+  sudo cp -f "${BREW_PREFIX}/etc/letsencrypt/options-ssl-nginx.conf" /etc/letsencrypt/ || true
+else
+  log "⚠️  options-ssl-nginx.conf not found; proceeding without extra TLS options."
+fi
+
+# Generate dhparams in background if missing (can take a while)
+if [ ! -f "/etc/letsencrypt/ssl-dhparams.pem" ]; then
+  log "Generating ssl-dhparams.pem in background (2048-bit)…"
+  (sudo openssl dhparam -out /etc/letsencrypt/ssl-dhparams.pem 2048 && \
+   log "ssl-dhparams.pem generated; reloading nginx" && \
+   sudo launchctl kickstart -k system/homebrew.mxcl.nginx) >/dev/null 2>&1 &
+else
+  success "ssl-dhparams.pem present."
+fi
 cat > "${NGINX_CONF_PATH}" << EOF
 worker_processes  1;
 
@@ -220,8 +241,8 @@ http {
         # SSL certs are now available
         ssl_certificate /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem;
         ssl_certificate_key /etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem;
-        include /etc/letsencrypt/options-ssl-nginx.conf;
-        ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+        $( [ -f /etc/letsencrypt/options-ssl-nginx.conf ] && echo "include /etc/letsencrypt/options-ssl-nginx.conf;" )
+        $( [ -f /etc/letsencrypt/ssl-dhparams.pem ] && echo "ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;" )
 
         # Optional IP allowlist on 443
         $( [ -n "${ALLOWED_IPS}" ] && echo "satisfy any;" )
