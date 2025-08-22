@@ -124,6 +124,65 @@ The script will handle the rest. The server will download the new model (which c
 
 ---
 
+## System daemon: running the chat server as a LaunchDaemon
+
+When installing `mlx-box` as a system-level service, running a user-owned `poetry run` command directly from a system LaunchDaemon may fail because system daemons run in a root context without a user shell. To avoid environment and permission mismatches we use a small, root-owned launcher script that executes the project's Poetry virtualenv Python with absolute paths.
+
+Why this matters
+- `launchd` will refuse or repeatedly fail a plist that tries to invoke user-shell helpers (like `poetry run`) from the system domain.
+- A root-owned launcher bridges the gap: it runs as root, sets the correct `HOME`, `cd`'s to the project `WorkingDirectory`, and `exec`'s the venv python with the absolute path to `chat-server.py`.
+
+Quick install (admin steps)
+
+1.  Create the launcher (run as an admin):
+
+```sh
+sudo mkdir -p /usr/local/bin
+sudo tee /usr/local/bin/mlx-chat-launcher.sh > /dev/null <<'SH'
+#!/bin/bash
+export HOME="/Users/env"
+VENV_PY="/Users/env/Library/Caches/pypoetry/virtualenvs/models-qHyjAnJ_-py3.11/bin/python3"
+SCRIPT="/Users/env/server/mlx-box/models/chat-server.py"
+cd /Users/env/server/mlx-box/models || exit 1
+exec "$VENV_PY" "$SCRIPT"
+SH
+sudo chmod 755 /usr/local/bin/mlx-chat-launcher.sh
+sudo chown root:wheel /usr/local/bin/mlx-chat-launcher.sh
+```
+
+2.  Replace the LaunchDaemon `ProgramArguments` with the launcher (backup first):
+
+```sh
+sudo cp /Library/LaunchDaemons/com.local.mlx-chat-server.plist /tmp/com.local.mlx-chat-server.plist.bak
+sudo tee /Library/LaunchDaemons/com.local.mlx-chat-server.plist > /dev/null <<'PLIST'
+... (plist that calls /usr/local/bin/mlx-chat-launcher.sh) ...
+PLIST
+sudo chown root:wheel /Library/LaunchDaemons/com.local.mlx-chat-server.plist
+sudo chmod 644 /Library/LaunchDaemons/com.local.mlx-chat-server.plist
+```
+
+3.  Ensure log directory exists and is owned by the service user:
+
+```sh
+sudo mkdir -p /Users/env/Library/Logs/com.local.mlx-chat-server
+sudo chown -R env:staff /Users/env/Library/Logs/com.local.mlx-chat-server
+sudo chmod 755 /Users/env/Library/Logs/com.local.mlx-chat-server
+```
+
+4.  Bootstrap and start the daemon:
+
+```sh
+sudo launchctl bootout system /Library/LaunchDaemons/com.local.mlx-chat-server.plist 2>/dev/null || true
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.local.mlx-chat-server.plist
+sudo launchctl start com.local.mlx-chat-server
+tail -f /Users/env/Library/Logs/com.local.mlx-chat-server/stderr.log
+```
+
+Notes
+- If you prefer the service to run under your user environment (so `poetry run` works natively), install the plist as a **LaunchAgent** in `~/Library/LaunchAgents` and bootstrap it from a GUI session. The launcher approach is recommended for system daemons.
+
+---
+
 ## 5. Updating Your Server
 
 To update your server to the latest version of the `mlx-box` code, follow this procedure. This process is designed to be safe and to preserve your existing configuration and data.
