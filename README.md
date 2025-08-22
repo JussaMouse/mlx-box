@@ -293,3 +293,81 @@ sudo tar -czvf mlx-box-backup-$(date +%Y-%m-%d).tar.gz /Users/env/server/config 
 4.  Restart the services (`sudo launchctl kickstart -k system/homebrew.mxcl.nginx`, etc.) to use the restored configurations.
 
 *(Other sections like `wooster` installation, service management, and troubleshooting would be updated to reflect the new Nginx-based URLs and localhost-only service access.)*
+
+---
+
+## Scripts: System Info and Reports
+
+These helper scripts capture system details and generate a consolidated report for post-install validation and ongoing troubleshooting.
+
+### `scripts/collect_system_info.sh`
+
+- Purpose: Snapshot key system facts (OS, CPU, RAM, disk free, primary IP, Hugging Face cache, project directory) into an env file for reuse.
+- Output: Writes `config/system-info.env`.
+- Run manually:
+    ```sh
+    scripts/collect_system_info.sh
+    cat config/system-info.env
+    ```
+
+### `scripts/generate_system_report.sh`
+
+- Purpose: Produce a timestamped, human-readable report aggregating system info, service status, nginx config, certbot status, firewall rules, and tails of critical logs.
+- Output: Saves under `reports/` as `system-report-YYYYMMDD-HHMMSS.txt`.
+- Auto-run: Executed automatically by `install.sh` on success.
+- Run manually anytime:
+    ```sh
+    scripts/generate_system_report.sh
+    ls -1 reports/
+    ```
+
+---
+
+## Unified logging and monitoring plan (proposal)
+
+This section outlines a practical plan to centralize logs, add lightweight 1-minute system metrics, and trigger admin alerts on thresholds. Implementation will be staged in scripts and services.
+
+### Logging sources to unify
+- Application/API:
+  - Python services (`models/chat-server.py`, `models/embed-server.py`): structured stdout/stderr to `~/Library/Logs/com.local.{service}/` via `launchd`.
+  - Nginx access/error logs: include client IP, time, status, and authenticated user if basic auth is enabled.
+- Frontend:
+  - `http-server` stderr/stdout already captured by `com.mlx-box.frontend-server` logs; keep directory listings disabled (`-d`).
+
+### Access and auth logging
+- Enable Nginx `log_format` to capture: `$remote_addr`, `$remote_user`, `$time_local`, `$request`, `$status`, `$body_bytes_sent`, `$http_referer`, `$http_user_agent`.
+- With basic auth enabled on 443, `$remote_user` will indicate the login user. Failed auth attempts appear in the error log.
+
+### Historical diagnostics (every 1 minute)
+- Collector script (to be added): `scripts/monitor_poll.sh` will append one-line CSV samples to `logs/metrics.csv` with:
+  - timestamp, cpu_percent, gpu_util (if available on Apple GPU), mem_used_percent, net_bytes_in/s, net_bytes_out/s, disk_used_percent
+- Scheduling: Install as a `launchd` agent/daemon with a StartInterval of 60 seconds.
+- Storage/retention: Rotate metrics weekly; keep 30 days by default.
+
+### Thresholds and alerts
+- Config in `config/settings.env` (to be added):
+  - `ALERT_EMAIL=admin@example.com`
+  - `ALERT_CPU_PCT=90`
+  - `ALERT_MEM_PCT=90`
+  - `ALERT_DISK_PCT=90`
+  - `ALERT_NET_MBPS=800` (optional)
+- Alerting transport:
+  - Email via the system `postfix` (macOS) using `mail`/`sendmail`, or configure an SMTP relay (e.g., `msmtp`) if `postfix` is disabled.
+  - Optional webhook (Slack/Discord) via `curl` for redundancy.
+- Alert policy:
+  - Trigger when a threshold is exceeded for 3 consecutive samples (3 minutes) to reduce noise.
+  - Send one notification per incident with a cool-down window (e.g., 30 minutes) unless the severity increases.
+
+### Admin report and triage
+- On each successful `install.sh` run, a full report is generated (see above). For incidents, the alert includes the last 20 lines of:
+  - Nginx error log
+  - Chat server log
+  - Embed server log
+  - Recent metrics window from `logs/metrics.csv`
+
+### Implementation checklist (next steps)
+- Add `scripts/monitor_poll.sh` to sample metrics portably on macOS.
+- Add a `launchd` plist to schedule the poller every 60s.
+- Extend `install.sh` to install/start the poller and to read alert thresholds from `config/settings.env` when present.
+- Add an alert sender (`scripts/send_alert.sh`) that supports email and optional webhook.
+- Document rotation and retention in `README.md` and add `logs/` to `.gitignore` (keep this directory local-only).
