@@ -185,6 +185,36 @@ Notes
 
 ---
 
+## Restricting HTTPS access (IP allowlist)
+
+You can restrict HTTPS (port 443) to specific client IPs using the `ALLOWED_IPS` setting. The installer will generate the allow/deny directives inside the `listen 443 ssl;` server block in nginx.
+
+1. Set the allowlist in `config/settings.env` (comma-separated, no spaces):
+```sh
+echo 'ALLOWED_IPS=1.2.3.4,5.6.7.8' >> config/settings.env
+```
+
+2. Re-run the installer (safe to re-run), or reload nginx after regeneration:
+```sh
+./install.sh
+# or, if nginx.conf is already regenerated
+BREW_PREFIX=$(brew --prefix)
+sudo nginx -t -c "$BREW_PREFIX/etc/nginx/nginx.conf"
+sudo launchctl kickstart -k system/homebrew.mxcl.nginx
+```
+
+3. Verify the active config contains the allow/deny lines under the 443 block:
+```sh
+BREW_PREFIX=$(brew --prefix)
+sudo nginx -T -c "$BREW_PREFIX/etc/nginx/nginx.conf" | egrep -n 'listen 443|allow |deny all'
+```
+
+Notes
+- If `ALLOWED_IPS` is empty, no allow/deny directives are added and 443 is publicly accessible.
+- Use your public IPs (as seen by the server). If you are behind another proxy, consider enabling a trusted-proxy setup with `real_ip`.
+
+---
+
 ## 5. Updating Your Server
 
 To update your server to the latest version of the `mlx-box` code, follow this procedure. This process is designed to be safe and to preserve your existing configuration and data.
