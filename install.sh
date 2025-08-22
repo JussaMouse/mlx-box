@@ -280,3 +280,9 @@ log "Server IP: ${SERVER_IP}"
 log "Public URL: https://${DOMAIN_NAME}"
 log "SSH Command: ssh -p ${SSH_PORT} $(whoami)@${SERVER_IP}"
 success "Setup is complete."
+
+# --- Reporting ---
+if [ -x "${PROJECT_DIR}/scripts/generate_system_report.sh" ]; then
+  log "Generating post-install system report…"
+  (cd "${PROJECT_DIR}" && scripts/generate_system_report.sh) || log "⚠️  Report generation failed"
+fi
