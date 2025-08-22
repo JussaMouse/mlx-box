@@ -45,6 +45,12 @@ success() {
 
 log "Starting mlx-box Server provisioning..."
 
+# Collect system info early so we can make decisions later
+if [ -x "$(pwd)/scripts/collect_system_info.sh" ]; then
+    log "Collecting system information..."
+    (cd "$(pwd)" && scripts/collect_system_info.sh) || log "Failed to collect system info"
+fi
+
 # --- Initial Checks ---
 
 # 1. Check for the configuration file.
