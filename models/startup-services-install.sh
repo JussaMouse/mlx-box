@@ -52,6 +52,36 @@ chown -R "$REAL_USER" "$EMBED_LOG_DIR"
 
 echo "📝 Creating LaunchDaemon plist files..."
 
+# Ensure /usr/local/bin exists for root-owned launchers and create launchers
+sudo mkdir -p /usr/local/bin
+sudo chown root:wheel /usr/local/bin || true
+
+# Chat launcher
+CHAT_LAUNCHER=/usr/local/bin/mlx-chat-launcher.sh
+sudo tee "$CHAT_LAUNCHER" > /dev/null << 'SH'
+#!/bin/bash
+export HOME="/Users/${SUDO_USER:-env}"
+VENV_PY="/Users/${SUDO_USER:-env}/Library/Caches/pypoetry/virtualenvs/models-qHyjAnJ_-py3.11/bin/python3"
+SCRIPT="/Users/${SUDO_USER:-env}/server/mlx-box/models/chat-server.py"
+cd /Users/${SUDO_USER:-env}/server/mlx-box/models || exit 1
+exec "$VENV_PY" "$SCRIPT"
+SH
+sudo chmod 755 "$CHAT_LAUNCHER"
+sudo chown root:wheel "$CHAT_LAUNCHER"
+
+# Embed launcher
+EMBED_LAUNCHER=/usr/local/bin/mlx-embed-launcher.sh
+sudo tee "$EMBED_LAUNCHER" > /dev/null << 'SH'
+#!/bin/bash
+export HOME="/Users/${SUDO_USER:-env}"
+VENV_PY="/Users/${SUDO_USER:-env}/Library/Caches/pypoetry/virtualenvs/models-qHyjAnJ_-py3.11/bin/python3"
+SCRIPT="/Users/${SUDO_USER:-env}/server/mlx-box/models/embed-server.py"
+cd /Users/${SUDO_USER:-env}/server/mlx-box/models || exit 1
+exec "$VENV_PY" "$SCRIPT"
+SH
+sudo chmod 755 "$EMBED_LAUNCHER"
+sudo chown root:wheel "$EMBED_LAUNCHER"
+
 # Ensure server files exist
 if [ ! -f "$PROJECT_DIR/chat-server.py" ]; then
     echo "❌ Chat server script not found: $PROJECT_DIR/chat-server.py"
