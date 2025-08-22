@@ -167,7 +167,8 @@ chmod +x "${PROJECT_DIR}/frontend/install-service.sh" 2>/dev/null || true
 (cd "${PROJECT_DIR}/frontend" && sudo ./install-service.sh)
 success "Application services installed."
 
-(cd "${PROJECT_DIR}/firewall" && sudo ./install-firewall.sh)
+chmod +x "${PROJECT_DIR}/firewall/install-firewall.sh" 2>/dev/null || true
+(cd "${PROJECT_DIR}/firewall" && sudo bash ./install-firewall.sh)
 log "Starting Nginx service with temporary config..."
 NGINX_PLIST_SOURCE=$(${BREW_PREFIX}/bin/brew --prefix nginx)/homebrew.mxcl.nginx.plist
 NGINX_PLIST_DEST="/Library/LaunchDaemons/homebrew.mxcl.nginx.plist"
