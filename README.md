@@ -128,6 +128,8 @@ The script will handle the rest. The server will download the new model (which c
 
 When installing `mlx-box` as a system-level service, running a user-owned `poetry run` command directly from a system LaunchDaemon may fail because system daemons run in a root context without a user shell. To avoid environment and permission mismatches we use a small, root-owned launcher script that executes the project's Poetry virtualenv Python with absolute paths.
 
+Note: The installer (`models/startup-services-install.sh`) now automatically creates the root-owned launchers in `/usr/local/bin` and writes the LaunchDaemon plists to call them. The manual steps below are provided for reference and for customizing installs.
+
 Why this matters
 - `launchd` will refuse or repeatedly fail a plist that tries to invoke user-shell helpers (like `poetry run`) from the system domain.
 - A root-owned launcher bridges the gap: it runs as root, sets the correct `HOME`, `cd`'s to the project `WorkingDirectory`, and `exec`'s the venv python with the absolute path to `chat-server.py`.
@@ -150,7 +152,7 @@ sudo chmod 755 /usr/local/bin/mlx-chat-launcher.sh
 sudo chown root:wheel /usr/local/bin/mlx-chat-launcher.sh
 ```
 
-2.  Replace the LaunchDaemon `ProgramArguments` with the launcher (backup first):
+2.  Replace the LaunchDaemon `ProgramArguments` with the launcher (backup first) — if you used the installer, this is already done:
 
 ```sh
 sudo cp /Library/LaunchDaemons/com.local.mlx-chat-server.plist /tmp/com.local.mlx-chat-server.plist.bak
@@ -169,7 +171,7 @@ sudo chown -R env:staff /Users/env/Library/Logs/com.local.mlx-chat-server
 sudo chmod 755 /Users/env/Library/Logs/com.local.mlx-chat-server
 ```
 
-4.  Bootstrap and start the daemon:
+4.  Bootstrap and start the daemon (or re-bootstrap after changes):
 
 ```sh
 sudo launchctl bootout system /Library/LaunchDaemons/com.local.mlx-chat-server.plist 2>/dev/null || true
