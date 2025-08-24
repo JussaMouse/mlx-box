@@ -90,7 +90,7 @@ Before running the script, there are three required manual steps: setting up DNS
         2.  Log in to your router's administration web page.
         3.  Find the "Port Forwarding" section (it may be called "Virtual Servers" or similar).
         4.  Create the following three rules to forward traffic to your server's local IP:
-            -   **SSH:** External Port `333` -> Internal Port `333` (TCP)
+            -   **SSH:** External Port `22` -> Internal Port `22` (TCP)
             -   **HTTP:** External Port `80` -> Internal Port `80` (TCP)
             -   **HTTPS:** External Port `443` -> Internal Port `443` (TCP)
         5.  Save and apply the changes. Your router may need to reboot.
@@ -98,8 +98,8 @@ Before running the script, there are three required manual steps: setting up DNS
 3.  **Set Up SSH Access:**
     Place your client's public SSH key into the `authorized_keys` file on the server.
     ```sh
-    mkdir -p /Users/env/.ssh && echo "ssh-ed25519 AAA..." > /Users/env/.ssh/authorized_keys
-    chmod 700 /Users/env/.ssh && chmod 600 /Users/env/.ssh/authorized_keys
+    mkdir -p ~/.ssh && echo "ssh-ed25519 AAA..." > ~/.ssh/authorized_keys
+    chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys
     ```
 
 4.  **Create and Edit Your Configuration File:**
@@ -181,10 +181,10 @@ Quick install (admin steps)
 sudo mkdir -p /usr/local/bin
 sudo tee /usr/local/bin/mlx-chat-launcher.sh > /dev/null <<'SH'
 #!/bin/bash
-export HOME="/Users/env"
-VENV_PY="/Users/env/Library/Caches/pypoetry/virtualenvs/models-qHyjAnJ_-py3.11/bin/python3"
-SCRIPT="/Users/env/server/mlx-box/models/chat-server.py"
-cd /Users/env/server/mlx-box/models || exit 1
+export HOME="/var/root"
+VENV_PY="/path/to/poetry/venv/bin/python3"
+SCRIPT="/absolute/path/to/mlx-box/models/chat-server.py"
+cd /absolute/path/to/mlx-box/models || exit 1
 exec "$VENV_PY" "$SCRIPT"
 SH
 sudo chmod 755 /usr/local/bin/mlx-chat-launcher.sh
@@ -205,9 +205,9 @@ sudo chmod 644 /Library/LaunchDaemons/com.local.mlx-chat-server.plist
 3.  Ensure log directory exists and is owned by the service user:
 
 ```sh
-sudo mkdir -p /Users/env/Library/Logs/com.local.mlx-chat-server
-sudo chown -R env:staff /Users/env/Library/Logs/com.local.mlx-chat-server
-sudo chmod 755 /Users/env/Library/Logs/com.local.mlx-chat-server
+sudo mkdir -p ~/Library/Logs/com.local.mlx-chat-server
+sudo chown -R "$USER":staff ~/Library/Logs/com.local.mlx-chat-server
+sudo chmod 755 ~/Library/Logs/com.local.mlx-chat-server
 ```
 
 4.  Bootstrap and start the daemon (or re-bootstrap after changes):
@@ -216,7 +216,7 @@ sudo chmod 755 /Users/env/Library/Logs/com.local.mlx-chat-server
 sudo launchctl bootout system /Library/LaunchDaemons/com.local.mlx-chat-server.plist 2>/dev/null || true
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.local.mlx-chat-server.plist
 sudo launchctl start com.local.mlx-chat-server
-tail -f /Users/env/Library/Logs/com.local.mlx-chat-server/stderr.log
+tail -f ~/Library/Logs/com.local.mlx-chat-server/stderr.log
 ```
 
 Notes
@@ -264,13 +264,13 @@ Before any update, perform a full backup of your critical data. This gives you a
 # Navigate to your home directory for the backup file
 cd ~
 # Create a timestamped backup of your config and SSL certs
-sudo tar -czvf mlx-box-backup-$(date +%Y-%m-%d).tar.gz /Users/env/server/config /etc/letsencrypt
+sudo tar -czvf mlx-box-backup-$(date +%Y-%m-%d).tar.gz /absolute/path/to/mlx-box/config /etc/letsencrypt
 ```
 
 ### Step 2: Fetch the Latest Code
 Navigate to the project directory and pull the latest changes from the Git repository.
     ```sh
-    cd /Users/env/server
+    cd /absolute/path/to
     git pull origin main # Or your primary branch
     ```
 
@@ -318,7 +318,7 @@ The backup strategy separates private user data from public, replaceable code.
 **Example Backup Command:**
 ```sh
 # Create a timestamped backup archive of critical data
-sudo tar -czvf mlx-box-backup-$(date +%Y-%m-%d).tar.gz /Users/env/server/config /etc/letsencrypt
+sudo tar -czvf mlx-box-backup-$(date +%Y-%m-%d).tar.gz /absolute/path/to/mlx-box/config /etc/letsencrypt
 ```
 
 ### 5.2. Restore Procedure

@@ -33,7 +33,8 @@ du -sh ~/.cache/huggingface/hub 2>/dev/null || true
 
 echo
 echo "== Network (WAN) =="
-echo -n "ifconfig.me: "; curl -s ifconfig.me || true; echo
+# Public IP check (optional; remove if concerned about leakage)
+echo -n "public_ip: "; curl -s ifconfig.me || true; echo
 
 echo
 echo "== Services (launchctl) =="

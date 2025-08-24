@@ -1,4 +1,4 @@
-# vice-server Configuration File
+# mlx-box Configuration File
 #
 # This is an example configuration. Copy this file to 'settings.toml'
 # in the same directory and edit it to match your setup.
@@ -6,9 +6,9 @@
 #
 
 [server]
-# The public domain name for this server (e.g., "vice.mydomain.com").
+# The public domain name for this server (e.g., "mlx-box.mydomain.com").
 # This is REQUIRED for obtaining an SSL certificate with Let's Encrypt.
-domain_name = "vice.example.com"
+domain_name = "mlx-box.example.com"
 
 # The email address to use for Let's Encrypt SSL registration and recovery.
 letsencrypt_email = "you@example.com"
@@ -21,7 +21,7 @@ host = "127.0.0.1"
 [services]
   # Configuration for the secure shell (SSH) service.
   [services.ssh]
-  port = 333
+  port = 22
 
   # Configuration for the Chat/LLM service.
   [services.chat]

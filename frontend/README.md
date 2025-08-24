@@ -39,4 +39,4 @@ To run the frontend as a background service that starts automatically on login, 
     ./install-service.sh
     ```
 
-The script will handle copying the files to `/Users/env/server/frontend`, creating a `launchd` service, and starting it. The frontend will then be available at `http://localhost:8000`. 
+The script will handle copying the files to your project directory's `frontend`, creating a `launchd` service, and starting it. The frontend will then be available at `http://localhost:8000`.
