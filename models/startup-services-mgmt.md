@@ -22,16 +22,38 @@ tail -f "${LOG_DIR}/com.local.mlx-chat-server/stderr.log"
 
 ## Service Management Commands
 
-### Stop Services
+### Stop Services (temporary)
 ```bash
-sudo launchctl stop com.local.embed-server
-sudo launchctl stop com.local.mlx-chat-server
+sudo launchctl kill SIGTERM system/com.local.embed-server
+sudo launchctl kill SIGTERM system/com.local.mlx-chat-server
+```
+
+### Fully unload (prevents respawn)
+```bash
+sudo launchctl bootout system /Library/LaunchDaemons/com.local.embed-server.plist
+sudo launchctl bootout system /Library/LaunchDaemons/com.local.mlx-chat-server.plist
+```
+
+### Clean up lingering processes
+```bash
+pkill -f 'mlx_lm.*server' 2>/dev/null || true
+pkill -f 'chat-server.py' 2>/dev/null || true
+pkill -f 'embed-server.py' 2>/dev/null || true
+```
+
+### Verify processes and ports
+```bash
+pgrep -fal 'mlx_lm|chat-server.py|embed-server.py' || echo "No matching processes."
+lsof -i :8080 -i :8081 | cat
 ```
 
 ### Start Services
 ```bash
-sudo launchctl start com.local.embed-server
-sudo launchctl start com.local.mlx-chat-server
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.local.embed-server.plist
+sudo launchctl kickstart -k system/com.local.embed-server
+
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.local.mlx-chat-server.plist
+sudo launchctl kickstart -k system/com.local.mlx-chat-server
 ```
 
 ### Restart Services
@@ -42,6 +64,12 @@ sudo launchctl kickstart -k system/com.local.embed-server
 
 # Restart the chat server
 sudo launchctl kickstart -k system/com.local.mlx-chat-server
+```
+
+### Disable/Enable on boot
+```bash
+sudo launchctl disable system/com.local.mlx-chat-server
+sudo launchctl enable system/com.local.mlx-chat-server
 ```
 
 ## Model Management
