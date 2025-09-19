@@ -28,7 +28,7 @@ host = "127.0.0.1"
   port = 8080
   # The default Hugging Face model to use.
   # This can be any model from the mlx-community library.
-  model = "mlx-community/Qwen2.5-72B-Instruct-4bit"
+  model = "mlx-community/Qwen3-14B-4bit-AWQ"
 
   # Configuration for the Embedding service.
   [services.embedding]

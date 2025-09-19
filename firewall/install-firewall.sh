@@ -63,5 +63,5 @@ echo "    ✅ 'pf' firewall is now active and will load on boot."
 
 echo ""
 echo "🎉 Custom firewall installation complete."
-echo "Ports 8000 and 8080 are now open."
-echo "All other incoming ports are blocked." 
+echo "pf.conf installed. Allowed inbound ports are defined in $(dirname "$0")/pf.conf."
+echo "All other incoming ports are blocked by default."

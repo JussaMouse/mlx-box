@@ -103,6 +103,16 @@ for pkg in "${HOMEBREW_PACKAGES[@]}"; do
 done
 success "All Homebrew packages are installed."
 
+# Optionally install Mosh if enabled via settings.env
+if [ "${ENABLE_MOSH:-0}" = "1" ]; then
+    if ! brew list --formula | grep -q "^mosh$"; then
+        log "Mosh enabled; installing mosh via Homebrew…"
+        brew install mosh
+    else
+        log "Mosh already installed."
+    fi
+fi
+
 
 # --- Phase 3: Environment Setup (Python/Node) ---
 log "Phase 3: Configuring Shell, Python, and Node.js environments..."
@@ -132,6 +142,18 @@ pass in proto tcp from any to any port 80
 pass in proto tcp from any to any port 443
 EOF
 success "firewall/pf.conf has been generated."
+
+# If Mosh is enabled, append UDP rules to pf.conf
+if [ "${ENABLE_MOSH:-0}" = "1" ]; then
+  MOSH_PORT_START_LOCAL="${MOSH_PORT_START:-60000}"
+  MOSH_PORT_END_LOCAL="${MOSH_PORT_END:-61000}"
+  cat >> "${PROJECT_DIR}/firewall/pf.conf" << EOF
+
+# Allow incoming UDP traffic for Mosh
+pass in proto udp from any to any port ${MOSH_PORT_START_LOCAL}:${MOSH_PORT_END_LOCAL}
+EOF
+  success "Added Mosh UDP range ${MOSH_PORT_START_LOCAL}-${MOSH_PORT_END_LOCAL} to pf.conf."
+fi
 
 # 2. Generate Nginx Configuration (Phase 1: Temporary for Certbot)
 log "Generating temporary Nginx configuration for Certbot..."

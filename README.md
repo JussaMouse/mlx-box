@@ -120,6 +120,24 @@ chmod +x install.sh
 ```
 The script is idempotent and safe to re-run. It will install all tools, dynamically generate configuration files (`pf.conf`, `nginx.conf`), install all services, and attempt to obtain an SSL certificate.
 
+#### Optional: Enable Mosh for resilient SSH
+
+If you want SSH-like sessions that survive Wi‑Fi changes and sleep, enable Mosh support:
+
+1) Edit `config/settings.env` and set:
+```sh
+ENABLE_MOSH=1
+MOSH_PORT_START=60010
+MOSH_PORT_END=60020
+```
+2) Re-run the installer:
+```sh
+./install.sh
+```
+This will install `mosh` via Homebrew and open the specified UDP port range in `firewall/pf.conf`.
+
+See the detailed guide at `docs/mosh-setup-guide.md` for tmux integration and iTerm2 profiles.
+
 ---
 
 ## 3. Configuration Explained
