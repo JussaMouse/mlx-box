@@ -39,7 +39,7 @@ def check_mlx_available():
     except ImportError:
         return False
 
-def wait_for_server(host, port, timeout=60):
+def wait_for_server(host, port, timeout=300):
     """Wait for the server to become available"""
     print(f"Waiting for server at http://{host}:{port}...")
     start_time = time.time()
@@ -110,9 +110,8 @@ def main():
     
     # Add kv-cache-quant for larger models to save RAM
     # Apply to fast and thinking models (typically 30B+)
-    # Disabled due to incompatibility with some mlx-lm versions
-    # if service_name in ["fast", "thinking"]:
-    #      cmd.extend(["--kv-cache-quant", "8bit"])
+    if service_name in ["fast", "thinking"]:
+         cmd.extend(["--kv-cache-quant", "8bit"])
 
     print(f"Running: {' '.join(cmd)}")
     print("=" * 50)
