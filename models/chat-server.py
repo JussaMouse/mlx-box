@@ -110,8 +110,9 @@ def main():
     
     # Add kv-cache-quant for larger models to save RAM
     # Apply to fast and thinking models (typically 30B+)
-    if service_name in ["fast", "thinking"]:
-         cmd.extend(["--kv-cache-quant", "8bit"])
+    # Disabled due to incompatibility with some mlx-lm versions
+    # if service_name in ["fast", "thinking"]:
+    #      cmd.extend(["--kv-cache-quant", "8bit"])
 
     print(f"Running: {' '.join(cmd)}")
     print("=" * 50)
