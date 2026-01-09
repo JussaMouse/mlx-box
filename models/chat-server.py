@@ -100,13 +100,18 @@ def main():
     print()
     
     # Build command for mlx_lm.server
-    cmd = [
-        sys.executable, "-m", "mlx_lm.server",
+    cmd = [sys.executable, "-m", "mlx_lm.server"]
+    
+    # Use patched server for Fast/Thinking tiers to enable KV cache quantization
+    if service_name in ["fast", "thinking"]:
+        cmd = [sys.executable, "patched_mlx_server.py"]
+
+    cmd.extend([
         "--model", model_name,
         "--port", str(port),
         "--host", host,
         "--max-tokens", str(max_tokens)
-    ]
+    ])
     
     # Add kv-cache-quant for larger models to save RAM
     # Apply to fast and thinking models (typically 30B+)

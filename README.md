@@ -40,8 +40,8 @@ chmod +x update-model.sh
 - pf firewall (opens only SSH, 80, 443)
 - **4 AI Services** (LaunchDaemons):
   - **Router Service** (Port 8082): Tiny, fast model for request classification
-  - **Fast Service** (Port 8080): General purpose, low-latency model
-  - **Thinking Service** (Port 8081): High-reasoning model for complex tasks
+  - **Fast Service** (Port 8080): General purpose, low-latency model (uses 8-bit KV cache quantization for memory efficiency)
+  - **Thinking Service** (Port 8081): High-reasoning model for complex tasks (uses 8-bit KV cache quantization)
   - **Embedding Service** (Port 8083): High-dimensional text embeddings
 - Static frontend as LaunchAgent/Daemon
 - Poetry-managed Python env in `models/`
