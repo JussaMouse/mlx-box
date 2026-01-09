@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 import uvicorn
 import torch
-from typing import List, Union
+from typing import List, Union, Optional
 from contextlib import asynccontextmanager
 import logging
 import tomlkit
@@ -44,7 +44,8 @@ server_config = config.get("server", {})
 # Global model instance
 model = None
 model_name = embed_config.get("model")
-port = embed_config.get("port", 8081)
+port = embed_config.get("port", 8083)
+batch_size = embed_config.get("batch_size", 64)
 host = server_config.get("host", "127.0.0.1")
 
 
@@ -55,21 +56,26 @@ async def lifespan(app: FastAPI):
 
     if not model_name:
         logger.error("❌ Model name not specified in 'config/settings.toml' under [services.embedding].")
-        # Use sys.exit in a startup event if necessary, or handle gracefully
         return
 
     logger.info(f"Loading embedding model: {model_name}")
+    logger.info(f"Batch size: {batch_size}")
     
     # Optimize for Apple Silicon
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     logger.info(f"Using device: {device}")
     
-    model = SentenceTransformer(model_name, device=device)
+    # Load model with trust_remote_code=True for Qwen models
+    model = SentenceTransformer(model_name, device=device, trust_remote_code=True)
+    
+    # Configure max sequence length if needed (Qwen3-Embedding supports up to 32k, but let's stick to reasonable defaults or model defaults)
+    # model.max_seq_length = 8192 
+    
     logger.info("✅ Qwen3 model loaded successfully")
     
     yield
     
-    # Shutdown (cleanup if needed)
+    # Shutdown
     logger.info("Shutting down embedding server")
 
 app = FastAPI(
@@ -80,7 +86,8 @@ app = FastAPI(
 
 class EmbeddingRequest(BaseModel):
     input: Union[str, List[str]]
-    model: str = model_name # Use the loaded model name as default
+    model: str = model_name 
+    encoding_format: str = "float" 
 
 class EmbeddingResponse(BaseModel):
     object: str = "list"
@@ -97,24 +104,16 @@ async def create_embeddings(request: EmbeddingRequest):
         # Handle both string and list inputs
         texts = [request.input] if isinstance(request.input, str) else request.input
         
-        # Generate embeddings with proper instruction handling
-        query_embeddings = []
-        document_embeddings = []
+        # Calculate tokens roughly for usage stats (approximation)
+        prompt_tokens = sum(len(text.split()) for text in texts) # Very rough approx
         
-        for text in texts:
-            # Simple heuristic: questions get query prompt, others are documents
-            if text.strip().endswith('?') or text.lower().startswith(('what', 'how', 'why', 'when', 'where')):
-                # Use query prompt for questions
-                embedding = model.encode([text], prompt_name="query")[0]
-            else:
-                # Regular document embedding
-                embedding = model.encode([text])[0]
-            
-            document_embeddings.append(embedding)
+        # Generate embeddings
+        # Batch processing is handled by SentenceTransformer
+        embeddings = model.encode(texts, batch_size=batch_size, convert_to_numpy=True, show_progress_bar=False)
         
         # Format response to match OpenAI API
         data = []
-        for i, embedding in enumerate(document_embeddings):
+        for i, embedding in enumerate(embeddings):
             data.append({
                 "object": "embedding",
                 "index": i,
@@ -125,8 +124,8 @@ async def create_embeddings(request: EmbeddingRequest):
             data=data,
             model=model_name,
             usage={
-                "prompt_tokens": sum(len(text.split()) for text in texts),
-                "total_tokens": sum(len(text.split()) for text in texts)
+                "prompt_tokens": prompt_tokens,
+                "total_tokens": prompt_tokens
             }
         )
         
@@ -142,7 +141,7 @@ async def health_check():
         "model": model_name,
         "model_loaded": model is not None,
         "device": "mps" if mps_available else "cpu",
-        "apple_silicon_optimized": mps_available
+        "batch_size": batch_size
     }
 
 @app.get("/v1/models")
@@ -154,7 +153,7 @@ async def list_models():
             "object": "model",
             "created": 1677610602,
             "owned_by": "qwen",
-            "dimensions": 2560  # Qwen3-4B embedding dimensions
+            "dimensions": model.get_sentence_embedding_dimension() if model else 4096
         }]
     }
 

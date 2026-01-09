@@ -1,4 +1,4 @@
-# mlx-box Configuration File
+# vice-server Configuration File
 #
 # This is an example configuration. Copy this file to 'settings.toml'
 # in the same directory and edit it to match your setup.
@@ -11,7 +11,7 @@
 domain_name = "mlx-box.example.com"
 
 # The email address to use for Let's Encrypt SSL registration and recovery.
-letsencrypt_email = "you@example.com"
+letsencrypt_email = "admin@example.com"
 
 # The host IP the application services will bind to.
 # For a secure, internet-facing server using a reverse proxy,
@@ -21,20 +21,40 @@ host = "127.0.0.1"
 [services]
   # Configuration for the secure shell (SSH) service.
   [services.ssh]
-  port = 22
+  port = 2222
 
-  # Configuration for the Chat/LLM service.
-  [services.chat]
+  # --- 3-Tier Intelligent Routing Configuration ---
+  
+  # Tier 0: Router Service
+  # Lightweight model for request classification and trivial queries
+  [services.router]
+  port = 8082
+  model = "mlx-community/Qwen3-0.6B-4bit"
+  max_tokens = 100
+
+  # Tier 1 & 2: Fast Service
+  # General purpose, low-latency model for most queries and simple tools
+  [services.fast]
   port = 8080
-  # The default Hugging Face model to use.
-  # This can be any model from the mlx-community library.
-  model = "mlx-community/Qwen3-14B-4bit-AWQ"
+  model = "mlx-community/Qwen3-30B-A3B-4bit"
+  max_tokens = 4096
 
+  # Tier 3: Thinking Service
+  # High-reasoning model for complex tasks, coding, and planning
+  [services.thinking]
+  port = 8081
+  model = "mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit"
+  max_tokens = 8192
+  thinking_budget = 4096
+
+  # --- Embedding Service ---
+  
   # Configuration for the Embedding service.
   [services.embedding]
-  port = 8081
+  port = 8083
   # The SentenceTransformer model to use for embeddings.
-  model = "Qwen/Qwen3-Embedding-4B"
+  model = "Qwen/Qwen3-Embedding-8B"
+  batch_size = 64
 
   # Configuration for the Frontend web service.
   [services.frontend]

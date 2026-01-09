@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Install Startup Services for Local AI Models
+# Install Startup Services for Local AI Models (3-Tier Architecture)
 # Run with: sudo ./install-startup-services.sh
 
 set -e
 
-echo "🚀 Installing Local AI Model Startup Services"
-echo "=============================================="
+echo "🚀 Installing Local AI Model Startup Services (3-Tier)"
+echo "===================================================="
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
@@ -32,7 +32,6 @@ fi
 
 # Dynamically find the poetry executable
 if ! POETRY_PATH=$(which poetry); then
-    # Fallback for non-interactive shells where .zshrc might not be sourced
     if [ -f "$USER_HOME/.local/bin/poetry" ]; then
         POETRY_PATH="$USER_HOME/.local/bin/poetry"
     else
@@ -42,71 +41,87 @@ if ! POETRY_PATH=$(which poetry); then
 fi
 echo "📦 Poetry: $POETRY_PATH"
 
-# Create log directories in the user's home directory
-CHAT_LOG_DIR="$USER_HOME/Library/Logs/com.local.mlx-chat-server"
-EMBED_LOG_DIR="$USER_HOME/Library/Logs/com.local.embed-server"
-mkdir -p "$CHAT_LOG_DIR"
-mkdir -p "$EMBED_LOG_DIR"
-chown -R "$REAL_USER" "$CHAT_LOG_DIR"
-chown -R "$REAL_USER" "$EMBED_LOG_DIR"
+# Create log directories for all 4 services
+LOG_BASE="$USER_HOME/Library/Logs"
+SERVICES=(
+    "com.local.mlx-router" 
+    "com.local.mlx-fast" 
+    "com.local.mlx-thinking" 
+    "com.local.embed-server"
+)
+
+for service in "${SERVICES[@]}"; do
+    mkdir -p "$LOG_BASE/$service"
+    chown -R "$REAL_USER" "$LOG_BASE/$service"
+done
 
 echo "📝 Creating LaunchDaemon plist files..."
 
-# Ensure /usr/local/bin exists for root-owned launchers and create launchers
+# Ensure /usr/local/bin exists
 sudo mkdir -p /usr/local/bin
 sudo chown root:wheel /usr/local/bin || true
 
-# Chat launcher
-CHAT_LAUNCHER=/usr/local/bin/mlx-chat-launcher.sh
-sudo tee "$CHAT_LAUNCHER" > /dev/null << 'SH'
+# Helper function to create Chat Launchers
+create_launcher() {
+    local NAME=$1
+    local SERVICE_ARG=$2
+    local LAUNCHER_PATH="/usr/local/bin/mlx-${NAME}-launcher.sh"
+    
+    # We need to find the VENV path. This is tricky as root.
+    # We'll use a hack to ask poetry where the venv is as the user.
+    # For now, we rely on the install script running `poetry install` previously.
+    # Note: In the previous script, VENV_PY was hardcoded or assumed. 
+    # Here we will try to make the launcher robust by cd-ing and running poetry run.
+    
+    sudo tee "$LAUNCHER_PATH" > /dev/null << SH
 #!/bin/bash
-export HOME="/Users/${SUDO_USER:-env}"
-VENV_PY="/Users/${SUDO_USER:-env}/Library/Caches/pypoetry/virtualenvs/models-qHyjAnJ_-py3.11/bin/python3"
-SCRIPT="/Users/${SUDO_USER:-env}/server/mlx-box/models/chat-server.py"
-cd /Users/${SUDO_USER:-env}/server/mlx-box/models || exit 1
-exec "$VENV_PY" "$SCRIPT"
-SH
-sudo chmod 755 "$CHAT_LAUNCHER"
-sudo chown root:wheel "$CHAT_LAUNCHER"
+export HOME="$USER_HOME"
+export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$USER_HOME/.local/bin"
 
-# Embed launcher
-EMBED_LAUNCHER=/usr/local/bin/mlx-embed-launcher.sh
-sudo tee "$EMBED_LAUNCHER" > /dev/null << 'SH'
+# Navigate to project dir
+cd "$PROJECT_DIR" || exit 1
+
+# Execute via poetry using the specific service argument
+exec "$POETRY_PATH" run python3 chat-server.py --service $SERVICE_ARG
+SH
+    sudo chmod 755 "$LAUNCHER_PATH"
+    sudo chown root:wheel "$LAUNCHER_PATH"
+    echo "Created launcher: $LAUNCHER_PATH"
+}
+
+create_launcher "router" "router"
+create_launcher "fast" "fast"
+create_launcher "thinking" "thinking"
+
+# Embed launcher is slightly different (different script)
+EMBED_LAUNCHER="/usr/local/bin/mlx-embed-launcher.sh"
+sudo tee "$EMBED_LAUNCHER" > /dev/null << SH
 #!/bin/bash
-export HOME="/Users/${SUDO_USER:-env}"
-VENV_PY="/Users/${SUDO_USER:-env}/Library/Caches/pypoetry/virtualenvs/models-qHyjAnJ_-py3.11/bin/python3"
-SCRIPT="/Users/${SUDO_USER:-env}/server/mlx-box/models/embed-server.py"
-cd /Users/${SUDO_USER:-env}/server/mlx-box/models || exit 1
-exec "$VENV_PY" "$SCRIPT"
+export HOME="$USER_HOME"
+export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$USER_HOME/.local/bin"
+cd "$PROJECT_DIR" || exit 1
+exec "$POETRY_PATH" run python3 embed-server.py
 SH
 sudo chmod 755 "$EMBED_LAUNCHER"
 sudo chown root:wheel "$EMBED_LAUNCHER"
 
-# Ensure server files exist
-if [ ! -f "$PROJECT_DIR/chat-server.py" ]; then
-    echo "❌ Chat server script not found: $PROJECT_DIR/chat-server.py"
-    exit 1
-fi
-if [ ! -f "$PROJECT_DIR/embed-server.py" ]; then
-    echo "❌ Embed server script not found: $PROJECT_DIR/embed-server.py"
-    exit 1
-fi
-
-# Create Chat Server plist
-cat > /Library/LaunchDaemons/com.local.mlx-chat-server.plist << EOF
+# Helper function to create Chat Plists
+create_chat_plist() {
+    local NAME=$1
+    local PLIST_NAME="com.local.mlx-${NAME}"
+    local LAUNCHER_PATH="/usr/local/bin/mlx-${NAME}-launcher.sh"
+    
+    cat > "/Library/LaunchDaemons/${PLIST_NAME}.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.local.mlx-chat-server</string>
+    <string>${PLIST_NAME}</string>
     
     <key>ProgramArguments</key>
     <array>
-        <string>$POETRY_PATH</string>
-        <string>run</string>
-        <string>python3</string>
-        <string>chat-server.py</string>
+        <string>${LAUNCHER_PATH}</string>
     </array>
     
     <key>WorkingDirectory</key>
@@ -119,10 +134,10 @@ cat > /Library/LaunchDaemons/com.local.mlx-chat-server.plist << EOF
     <true/>
     
     <key>StandardOutPath</key>
-    <string>${CHAT_LOG_DIR}/stdout.log</string>
+    <string>${LOG_BASE}/${PLIST_NAME}/stdout.log</string>
     
     <key>StandardErrorPath</key>
-    <string>${CHAT_LOG_DIR}/stderr.log</string>
+    <string>${LOG_BASE}/${PLIST_NAME}/stderr.log</string>
     
     <key>UserName</key>
     <string>$REAL_USER</string>
@@ -133,18 +148,20 @@ cat > /Library/LaunchDaemons/com.local.mlx-chat-server.plist << EOF
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>$(dirname "$POETRY_PATH"):/opt/homebrew/bin:/usr/bin:/bin</string>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>HOME</key>
         <string>$USER_HOME</string>
     </dict>
-    
-    <key>ThrottleInterval</key>
-    <integer>10</integer>
 </dict>
 </plist>
 EOF
+}
 
-# Create Embedding Server plist
+create_chat_plist "router"
+create_chat_plist "fast"
+create_chat_plist "thinking"
+
+# Embed Plist
 cat > /Library/LaunchDaemons/com.local.embed-server.plist << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -155,10 +172,7 @@ cat > /Library/LaunchDaemons/com.local.embed-server.plist << EOF
     
     <key>ProgramArguments</key>
     <array>
-        <string>$POETRY_PATH</string>
-        <string>run</string>
-        <string>python3</string>
-        <string>embed-server.py</string>
+        <string>/usr/local/bin/mlx-embed-launcher.sh</string>
     </array>
     
     <key>WorkingDirectory</key>
@@ -171,10 +185,10 @@ cat > /Library/LaunchDaemons/com.local.embed-server.plist << EOF
     <true/>
     
     <key>StandardOutPath</key>
-    <string>${EMBED_LOG_DIR}/stdout.log</string>
+    <string>${LOG_BASE}/com.local.embed-server/stdout.log</string>
     
     <key>StandardErrorPath</key>
-    <string>${EMBED_LOG_DIR}/stderr.log</string>
+    <string>${LOG_BASE}/com.local.embed-server/stderr.log</string>
     
     <key>UserName</key>
     <string>$REAL_USER</string>
@@ -185,53 +199,54 @@ cat > /Library/LaunchDaemons/com.local.embed-server.plist << EOF
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>$(dirname "$POETRY_PATH"):/opt/homebrew/bin:/usr/bin:/bin</string>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>HOME</key>
         <string>$USER_HOME</string>
     </dict>
-    
-    <key>ThrottleInterval</key>
-    <integer>10</integer>
 </dict>
 </plist>
 EOF
 
-# Set proper permissions
+# Permissions
 chmod 644 /Library/LaunchDaemons/com.local.*.plist
 chown root:wheel /Library/LaunchDaemons/com.local.*.plist
 
 echo "✅ LaunchDaemon files created"
 
-# Load the services
-echo "🔄 Loading services using modern bootstrap method..."
-
-# Unload any old versions that might be stuck
-launchctl bootout system /Library/LaunchDaemons/com.local.embed-server.plist 2>/dev/null || true
+# Cleanup old single-chat service if it exists
+echo "🧹 Cleaning up legacy services..."
 launchctl bootout system /Library/LaunchDaemons/com.local.mlx-chat-server.plist 2>/dev/null || true
+rm -f /Library/LaunchDaemons/com.local.mlx-chat-server.plist
 
-echo "Starting embedding server first (lighter load)..."
+# Load new services
+echo "🔄 Loading 3-Tier services..."
+
+# Bootout existing new services to ensure clean reload
+launchctl bootout system /Library/LaunchDaemons/com.local.mlx-router.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.local.mlx-fast.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.local.mlx-thinking.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.local.embed-server.plist 2>/dev/null || true
+
+# Start them (Embedding first)
 launchctl bootstrap system /Library/LaunchDaemons/com.local.embed-server.plist
-launchctl kickstart -k system/com.local.embed-server
 
-echo "Waiting 30 seconds before starting chat server..."
-sleep 30
+# Start Router
+launchctl bootstrap system /Library/LaunchDaemons/com.local.mlx-router.plist
 
-echo "Starting chat server (heavier load)..."
-launchctl bootstrap system /Library/LaunchDaemons/com.local.mlx-chat-server.plist
-launchctl kickstart -k system/com.local.mlx-chat-server
+# Start Fast & Thinking (staggered slightly to avoid IO spike)
+sleep 2
+launchctl bootstrap system /Library/LaunchDaemons/com.local.mlx-fast.plist
+sleep 2
+launchctl bootstrap system /Library/LaunchDaemons/com.local.mlx-thinking.plist
 
 echo ""
-echo "🎉 Services installed and loaded!"
-echo ""
-echo "📊 Current Status:"
+echo "🎉 All services installed and loaded!"
+echo "📊 Service Status:"
 launchctl list | grep com.local || true
 
 echo ""
-echo "📖 See startup-services-management.md for:"
-echo "• Log monitoring commands"
-echo "• Service management (start/stop/restart)"
-echo "• Test endpoints and troubleshooting"
-echo ""
-echo "🔗 Quick test (in ~2-5 minutes):"
-echo "• http://127.0.0.1:8081/v1/models (embed)"
-echo "• http://127.0.0.1:8080/v1/models (chat)" 
+echo "🔗 Endpoints:"
+echo "• Router:   http://127.0.0.1:8082"
+echo "• Fast:     http://127.0.0.1:8080"
+echo "• Thinking: http://127.0.0.1:8081"
+echo "• Embed:    http://127.0.0.1:8083"

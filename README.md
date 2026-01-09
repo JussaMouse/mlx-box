@@ -1,6 +1,6 @@
 # mlx-box
 
-Production-ready macOS server for running local AI behind Nginx with SSL, firewall, and system services.
+Nginx with SSL, firewall, and system services for high-performance local AI.
 
 ## Quick Start
 1) Prepare config:
@@ -27,25 +27,58 @@ sudo nginx -T -c "$BREW_PREFIX/etc/nginx/nginx.conf" | egrep -n 'listen 443|allo
 curl -I http://127.0.0.1:80
 curl -I https://YOUR.DOMAIN --resolve YOUR.DOMAIN:443:$(curl -s ifconfig.me)
 ```
-5) First model switch (optional):
+5) Update Models (optional):
 ```sh
 chmod +x update-model.sh
-./update-model.sh mlx-community/Llama-3-8B-Instruct-4bit
+# Update specific tiers
+./update-model.sh router mlx-community/Qwen3-0.6B-4bit
+./update-model.sh fast mlx-community/Qwen3-30B-A3B-4bit
 ```
 
 ### What gets installed
 - Nginx (reverse proxy, SSL via certbot webroot, optional allowlist/basic auth)
 - pf firewall (opens only SSH, 80, 443)
-- AI services (chat and embed) as LaunchDaemons
+- **4 AI Services** (LaunchDaemons):
+  - **Router Service** (Port 8082): Tiny, fast model for request classification
+  - **Fast Service** (Port 8080): General purpose, low-latency model
+  - **Thinking Service** (Port 8081): High-reasoning model for complex tasks
+  - **Embedding Service** (Port 8083): High-dimensional text embeddings
 - Static frontend as LaunchAgent/Daemon
 - Poetry-managed Python env in `models/`
 - System report saved under `reports/` after successful install
 
 ---
 
-## 1. System Architecture: A Secure, Layered Defense
+## 1. System Architecture: 3-Tier Intelligent Routing
 
-This project is architected for security and reliability using a reverse proxy model.
+This project implements a multi-model architecture designed to balance speed, cost (resources), and capability.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        User Input                                │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   TIER 0: Router Service (Port 8082)            │
+│              Qwen3-0.6B-4bit (~300+ tok/s)                       │
+│                                                                  │
+│  Classifies into: TRIVIAL | SIMPLE | COMPLEX | REASONING         │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+           ┌──────────────────┼──────────────────┐
+           │                  │                  │
+           ▼                  ▼                  ▼
+┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+│   TIER 1: Fast  │ │  TIER 2: Fast   │ │ TIER 3: Thinking│
+│  (Port 8080)    │ │  (Port 8080)    │ │  (Port 8081)    │
+│                 │ │                 │ │                 │
+│ Qwen3-30B-A3B   │ │ Qwen3-30B-A3B   │ │ Qwen3-30B-A3B   │
+│    (base)       │ │    (base)       │ │  Thinking-2507  │
+│                 │ │                 │ │                 │
+│  ~100+ tok/s    │ │  ~100+ tok/s    │ │  ~50-80 tok/s   │
+└─────────────────┘ └─────────────────┘ └─────────────────┘
+```
 
 -   **Outer Wall (Firewall):** The `pf` firewall is the first line of defense. It blocks all incoming traffic by default, only allowing connections on the standard web ports (`80/443`) and a custom SSH port.
 -   **Gatekeeper (Nginx):** Nginx is the only service exposed to the internet. It terminates SSL (HTTPS) and acts as a secure reverse proxy, routing traffic to the appropriate internal application.
@@ -136,6 +169,8 @@ MOSH_PORT_END=60020
 ```
 This will install `mosh` via Homebrew and open the specified UDP port range in `firewall/pf.conf`.
 
+Note: If your server sits behind a router or cloud firewall, add an inbound UDP rule/port-forward for `MOSH_PORT_START`–`MOSH_PORT_END` to this host.
+
 See the detailed guide at `docs/mosh-setup-guide.md` for tmux integration and iTerm2 profiles.
 
 ---
@@ -155,26 +190,35 @@ This file uses a simple `KEY=VALUE` format and is used by the shell scripts (`in
 
 ### `settings.toml` (for the AI services)
 
-This file is used exclusively by the Python-based AI services (`chat-server.py`, `embed-server.py`) to select which models to load.
+This file is used by the Python-based AI services (`chat-server.py`, `embed-server.py`) to select which models to load. It now supports multiple service tiers:
 
--   `model`: The Hugging Face model ID for the chat and embedding services. You can change this to use any compatible model from the `mlx-community` library.
+-   `[services.router]`: Configuration for the lightweight router model (default: Qwen3-0.6B).
+-   `[services.fast]`: Configuration for the standard fast model (default: Qwen3-30B-A3B).
+-   `[services.thinking]`: Configuration for the advanced reasoning model (default: Qwen3-30B-A3B-Thinking).
+-   `[services.embedding]`: Configuration for the embedding model.
 
 ---
 
 ## 4. Model Management
 
-You can easily switch to a new chat model without re-running the entire installation.
+You can easily switch to a new chat model without re-running the entire installation using the `update-model.sh` script.
 
 ### Using the `update-model.sh` Script
 
-The simplest method is to use the provided `update-model.sh` script. It will automatically update your configuration, restart the service, and show you the download progress.
+The script now requires a **service name** (router, fast, thinking) in addition to the model ID.
 
 ```sh
-# Make the script executable (only need to do this once)
+# Make the script executable
 chmod +x update-model.sh
 
-# Run the script with the new model ID
-./update-model.sh mlx-community/Llama-3-8B-Instruct-4bit
+# Update the Router model
+./update-model.sh router mlx-community/Qwen3-0.6B-4bit
+
+# Update the Fast model
+./update-model.sh fast mlx-community/Qwen3-30B-A3B-4bit
+
+# Update the Thinking model
+./update-model.sh thinking mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit
 ```
 
 The script will handle the rest. The server will download the new model (which can take some time) and load it.
@@ -202,8 +246,9 @@ sudo tee /usr/local/bin/mlx-chat-launcher.sh > /dev/null <<'SH'
 export HOME="/var/root"
 VENV_PY="/path/to/poetry/venv/bin/python3"
 SCRIPT="/absolute/path/to/mlx-box/models/chat-server.py"
+# ... args passed from plist ...
 cd /absolute/path/to/mlx-box/models || exit 1
-exec "$VENV_PY" "$SCRIPT"
+exec "$VENV_PY" "$SCRIPT" "$@"
 SH
 sudo chmod 755 /usr/local/bin/mlx-chat-launcher.sh
 sudo chown root:wheel /usr/local/bin/mlx-chat-launcher.sh

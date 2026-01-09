@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-MLX Chat Server for Qwen2.5-72B-Instruct
-OpenAI-compatible API for Wooster integration
+MLX Chat Server - Multi-Tier Architecture Support
+Supports: Router, Fast, and Thinking service tiers
 """
 
 import subprocess
 import sys
-import os
+import argparse
 import time
 import requests
 from pathlib import Path
@@ -39,7 +39,7 @@ def check_mlx_available():
     except ImportError:
         return False
 
-def wait_for_server(host="127.0.0.1", port=8080, timeout=60):
+def wait_for_server(host, port, timeout=60):
     """Wait for the server to become available"""
     print(f"Waiting for server at http://{host}:{port}...")
     start_time = time.time()
@@ -57,48 +57,35 @@ def wait_for_server(host="127.0.0.1", port=8080, timeout=60):
     
     return False
 
-def test_server(host="127.0.0.1", port=8080):
-    """Test the server with a simple chat completion"""
-    try:
-        response = requests.post(
-            f"http://{host}:{port}/v1/chat/completions",
-            json={
-                "model": "qwen2.5-72b-instruct",
-                "messages": [{"role": "user", "content": "Hello! Can you confirm you're working?"}],
-                "max_tokens": 50,
-                "temperature": 0.7
-            },
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            content = data["choices"][0]["message"]["content"]
-            print(f"✅ Server test successful!")
-            print(f"Response: {content}")
-            return True
-        else:
-            print(f"❌ Server test failed: {response.status_code}")
-            return False
-            
-    except Exception as e:
-        print(f"❌ Server test error: {e}")
-        return False
-
 def main():
     """Main function to start the MLX chat server"""
+    parser = argparse.ArgumentParser(description="Start an MLX chat server for a specific tier")
+    parser.add_argument("--service", choices=["router", "fast", "thinking"], default="fast",
+                        help="The service tier to run (default: fast)")
+    args = parser.parse_args()
     
     # Load configuration from settings.toml
     config = load_config()
-    chat_config = config.get("services", {}).get("chat", {})
     server_config = config.get("server", {})
-    
-    model_name = chat_config.get("model")
-    port = chat_config.get("port", 8080)
     host = server_config.get("host", "127.0.0.1")
+    
+    # Get service-specific config
+    service_name = args.service
+    service_config = config.get("services", {}).get(service_name, {})
+    
+    if not service_config:
+        print(f"❌ Configuration for service '{service_name}' not found in 'config/settings.toml'.")
+        sys.exit(1)
+
+    model_name = service_config.get("model")
+    port = service_config.get("port", 8080)
+    max_tokens = service_config.get("max_tokens", 4096)
+    
+    # Special config for thinking model (not used by CLI directly but good to track)
+    # thinking_budget = service_config.get("thinking_budget") 
 
     if not model_name:
-        print("❌ Model name not specified in 'config/settings.toml' under [services.chat].")
+        print(f"❌ Model name not specified for '{service_name}' in config.")
         sys.exit(1)
 
     # Check if MLX is available
@@ -106,61 +93,39 @@ def main():
         print("❌ MLX not available. Install with: poetry add mlx mlx-lm")
         sys.exit(1)
     
-    print(f"🚀 Starting MLX server with model: {model_name}")
-    print(f"📍 Server will be available at: http://{host}:{port}")
+    print(f"🚀 Starting MLX server for Tier: {service_name.upper()}")
+    print(f"📦 Model: {model_name}")
+    print(f"📍 Address: http://{host}:{port}")
     print(f"🔄 This will download the model on first run if not cached.")
-    print(f"⏱️  Model loading may take several minutes...")
     print()
     
-    # Start the MLX server
+    # Build command for mlx_lm.server
+    cmd = [
+        sys.executable, "-m", "mlx_lm.server",
+        "--model", model_name,
+        "--port", str(port),
+        "--host", host,
+        "--max-tokens", str(max_tokens)
+    ]
+    
+    # Add kv-cache-quant for larger models to save RAM
+    # Apply to fast and thinking models (typically 30B+)
+    if service_name in ["fast", "thinking"]:
+         cmd.extend(["--kv-cache-quant", "8bit"])
+
+    print(f"Running: {' '.join(cmd)}")
+    print("=" * 50)
+    
+    # Start server process
     try:
-        cmd = [
-            sys.executable, "-m", "mlx_lm", "server",
-            "--model", model_name,
-            "--port", str(port),
-            "--host", host,
-            "--max-tokens", "4096"
-        ]
-        
-        print(f"Running: {' '.join(cmd)}")
-        print("=" * 50)
-        
-        # Start server process
         process = subprocess.Popen(cmd)
         
         # Wait for server to be ready
         if wait_for_server(host, port):
-            # Test the server
-            test_server(host, port)
-            
             print()
-            print("🎉 Qwen2.5-72B server is ready for Wooster!")
+            print(f"🎉 {service_name.upper()} server is ready!")
+            print(f"🔗 Endpoint: http://{host}:{port}/v1/chat/completions")
             print()
-            print("📋 Wooster Configuration:")
-            print("Add this to your Wooster config:")
-            print(f"""
-{{
-  "routing": {{
-    "providers": {{
-      "local": {{
-        "chat": {{
-          "enabled": true,
-          "baseURL": "http://{host}:{port}/v1",
-          "model": "{model_name}",
-          "supportsStreaming": true
-        }}
-      }}
-    }}
-  }}
-}}
-            """)
-            
-            print("\n🔗 Test endpoints:")
-            print(f"• Models: http://{host}:{port}/v1/models")
-            print(f"• Chat: http://{host}:{port}/v1/chat/completions")
-            print(f"• Health: http://{host}:{port}/health")
-            
-            print("\n⏹️  Press Ctrl+C to stop the server")
             
             # Keep server running
             process.wait()
@@ -181,4 +146,4 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    main() 
+    main()
