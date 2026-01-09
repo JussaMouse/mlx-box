@@ -40,10 +40,15 @@ chmod +x update-model.sh
 - pf firewall (opens only SSH, 80, 443)
 - **4 AI Services** (LaunchDaemons):
   - **Router Service** (Port 8082): Tiny, fast model for request classification
-  - **Fast Service** (Port 8080): General purpose, low-latency model (uses 8-bit KV cache quantization for memory efficiency)
-  - **Thinking Service** (Port 8081): High-reasoning model for complex tasks (uses 8-bit KV cache quantization)
+  - **Fast Service** (Port 8080): General purpose, low-latency model.
+    - *Optimization:* Uses a custom monkey-patched server (`patched_mlx_server.py`) to enforce **8-bit KV cache quantization**. This reduces context memory usage by ~50%, allowing multiple 30B models to fit comfortably in RAM.
+  - **Thinking Service** (Port 8081): High-reasoning model for complex tasks.
+    - *Optimization:* Also uses 8-bit KV cache quantization.
   - **Embedding Service** (Port 8083): High-dimensional text embeddings
 - Static frontend as LaunchAgent/Daemon
+
+### Performance Note: KV Cache Quantization
+By default, the `mlx-lm` server wrapper does not expose an option for Key-Value (KV) cache quantization. To maximize efficiency on the Mac Studio (especially when running multiple heavy models), we use a wrapper script (`models/patched_mlx_server.py`) that monkey-patches `mlx_lm.load()` to force `kv_bits=8`. This significantly reduces the memory footprint of long contexts without noticeable quality loss.
 - Poetry-managed Python env in `models/`
 - System report saved under `reports/` after successful install
 
