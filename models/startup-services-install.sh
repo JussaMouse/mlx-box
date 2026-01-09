@@ -245,8 +245,4 @@ echo "📊 Service Status:"
 launchctl list | grep com.local || true
 
 echo ""
-echo "🔗 Endpoints:"
-echo "• Router:   http://127.0.0.1:8082"
-echo "• Fast:     http://127.0.0.1:8080"
-echo "• Thinking: http://127.0.0.1:8081"
-echo "• Embed:    http://127.0.0.1:8083"
+echo "Please verify your endpoints match your config/settings.toml"
