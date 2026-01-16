@@ -257,6 +257,14 @@ model = "mlx-community/olmOCR-2-7B-1025-mlx-8bit"
 
 Unlike the text tiers (which run `mlx_lm.server`), OCR runs a multimodal OpenAI-compatible server via `mlx-openai-server` (which uses `mlx-vlm` internally) so it can accept the standard `image_url` message parts while still exposing `/v1/*` endpoints.
 
+### Python version note (important after upgrades)
+
+The OCR dependency stack currently requires **Python < 3.13**. If a macOS/software update upgraded your default Python to 3.13, the OCR service may fail to install/start unless the Poetry env is pinned to Python 3.12.
+
+`models/startup-services-install.sh` now **auto-installs Homebrew `python@3.12`** (if missing) and runs:
+- `poetry env use /opt/homebrew/bin/python3.12`
+- `poetry install`
+
 ### Test on the real server
 
 1) Install/update Python deps (once):

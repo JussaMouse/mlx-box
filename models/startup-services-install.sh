@@ -45,7 +45,41 @@ if ! POETRY_PATH=$(which poetry 2>/dev/null); then
 fi
 echo "📦 Poetry: $POETRY_PATH"
 
-# Create log directories for all 4 services
+# --- Python/Poetry environment hardening ---
+# The OCR service depends on mlx-openai-server/mlx-vlm which currently requires Python < 3.13.
+# After macOS/software upgrades, the "default" python may become 3.13 and break dependency resolution.
+# We force the Poetry env for this project to use Homebrew python@3.12.
+
+BREW_BIN=""
+if [ -x "/opt/homebrew/bin/brew" ]; then
+    BREW_BIN="/opt/homebrew/bin/brew"
+elif command -v brew >/dev/null 2>&1; then
+    BREW_BIN="$(command -v brew)"
+fi
+
+USER_ENV_PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$USER_HOME/.local/bin"
+
+run_as_user() {
+    sudo -u "$REAL_USER" -H env HOME="$USER_HOME" PATH="$USER_ENV_PATH" "$@"
+}
+
+if [ -z "$BREW_BIN" ]; then
+    echo "❌ Homebrew not found. Required to install python@3.12 for OCR."
+    exit 1
+fi
+
+PY312="/opt/homebrew/bin/python3.12"
+if [ ! -x "$PY312" ]; then
+    echo "📦 Installing Homebrew python@3.12 (required for OCR dependencies)..."
+    run_as_user "$BREW_BIN" install python@3.12
+fi
+
+echo "🔧 Ensuring Poetry uses Python 3.12 for this project..."
+run_as_user "$POETRY_PATH" env use "$PY312"
+echo "📦 Installing/updating Python deps (poetry install)..."
+run_as_user "$POETRY_PATH" install --no-interaction
+
+# Create log directories for all 5 services
 LOG_BASE="$USER_HOME/Library/Logs"
 SERVICES=(
     "com.local.mlx-router" 

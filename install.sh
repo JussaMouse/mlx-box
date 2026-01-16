@@ -13,6 +13,7 @@ readonly PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PYTHON_VERSION="3.11.10"
 readonly NODE_VERSION="24.2"
 readonly HOMEBREW_PACKAGES=(
+    "python@3.12"
     "pyenv"
     "pipx"
     "nvm"
