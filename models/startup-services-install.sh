@@ -79,7 +79,9 @@ echo "🔧 Ensuring Poetry uses Python 3.12 for this project..."
 # this script is invoked from the repo root (e.g. sudo ./models/startup-services-install.sh).
 run_as_user bash -lc "cd \"$PROJECT_DIR\" && \"$POETRY_PATH\" env use \"$PY312\""
 echo "📦 Installing/updating Python deps (poetry install)..."
-run_as_user bash -lc "cd \"$PROJECT_DIR\" && \"$POETRY_PATH\" install --no-interaction"
+# Use --no-root so Poetry doesn't try to install the "models" project as a package.
+# This avoids failures due to packaging metadata (e.g. missing models/README.md).
+run_as_user bash -lc "cd \"$PROJECT_DIR\" && \"$POETRY_PATH\" install --no-interaction --no-root"
 
 # Create log directories for all 5 services
 LOG_BASE="$USER_HOME/Library/Logs"

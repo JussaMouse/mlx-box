@@ -263,7 +263,7 @@ The OCR dependency stack currently requires **Python < 3.13**. If a macOS/softwa
 
 `models/startup-services-install.sh` now **auto-installs Homebrew `python@3.12`** (if missing) and runs:
 - `poetry env use /opt/homebrew/bin/python3.12`
-- `poetry install`
+- `poetry install --no-root` (dependency sync only; avoids packaging metadata issues)
 
 ### Test on the real server
 
@@ -271,7 +271,7 @@ The OCR dependency stack currently requires **Python < 3.13**. If a macOS/softwa
 
 ```sh
 cd models
-poetry install
+poetry install --no-root
 ```
 
 2) Ensure the service is installed/bootstrapped (or reinstall all services):
@@ -446,7 +446,7 @@ After reviewing the differences, manually copy any new settings from the `.examp
 ### Step 4: Update Dependencies
 The new code may require new or updated Python libraries. Run `poetry install` to sync your environment.
 ```sh
-(cd models && poetry install)
+(cd models && poetry install --no-root)
 ```
 
 ### Step 5: Re-run the Master Installer
