@@ -75,9 +75,11 @@ if [ ! -x "$PY312" ]; then
 fi
 
 echo "🔧 Ensuring Poetry uses Python 3.12 for this project..."
-run_as_user "$POETRY_PATH" env use "$PY312"
+# Run Poetry from the models/ directory so it finds pyproject.toml even when
+# this script is invoked from the repo root (e.g. sudo ./models/startup-services-install.sh).
+run_as_user bash -lc "cd \"$PROJECT_DIR\" && \"$POETRY_PATH\" env use \"$PY312\""
 echo "📦 Installing/updating Python deps (poetry install)..."
-run_as_user "$POETRY_PATH" install --no-interaction
+run_as_user bash -lc "cd \"$PROJECT_DIR\" && \"$POETRY_PATH\" install --no-interaction"
 
 # Create log directories for all 5 services
 LOG_BASE="$USER_HOME/Library/Logs"
