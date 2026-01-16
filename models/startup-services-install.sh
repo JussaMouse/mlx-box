@@ -30,10 +30,14 @@ if [ ! -d "$PROJECT_DIR" ]; then
     exit 1
 fi
 
-# Dynamically find the poetry executable
-if ! POETRY_PATH=$(which poetry); then
-    if [ -f "$USER_HOME/.local/bin/poetry" ]; then
+# Dynamically find the poetry executable (works for common install paths)
+if ! POETRY_PATH=$(which poetry 2>/dev/null); then
+    if [ -x "$USER_HOME/.local/bin/poetry" ]; then
         POETRY_PATH="$USER_HOME/.local/bin/poetry"
+    elif [ -x "$USER_HOME/Library/Python/3.9/bin/poetry" ]; then
+        POETRY_PATH="$USER_HOME/Library/Python/3.9/bin/poetry"
+    elif [ -x "/opt/homebrew/bin/poetry" ]; then
+        POETRY_PATH="/opt/homebrew/bin/poetry"
     else
         echo "❌ Poetry not found. Please ensure Poetry is installed and in your PATH."
         exit 1
@@ -48,6 +52,7 @@ SERVICES=(
     "com.local.mlx-fast" 
     "com.local.mlx-thinking" 
     "com.local.embed-server"
+    "com.local.ocr-server"
 )
 
 for service in "${SERVICES[@]}"; do
@@ -104,6 +109,18 @@ exec "$POETRY_PATH" run python3 embed-server.py
 SH
 sudo chmod 755 "$EMBED_LAUNCHER"
 sudo chown root:wheel "$EMBED_LAUNCHER"
+
+# OCR launcher (OpenAI-compatible vision chat via mlx-openai-server)
+OCR_LAUNCHER="/usr/local/bin/mlx-ocr-launcher.sh"
+sudo tee "$OCR_LAUNCHER" > /dev/null << SH
+#!/bin/bash
+export HOME="$USER_HOME"
+export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$USER_HOME/.local/bin"
+cd "$PROJECT_DIR" || exit 1
+exec "$POETRY_PATH" run python3 ocr-server.py
+SH
+sudo chmod 755 "$OCR_LAUNCHER"
+sudo chown root:wheel "$OCR_LAUNCHER"
 
 # Helper function to create Chat Plists
 create_chat_plist() {
@@ -207,6 +224,52 @@ cat > /Library/LaunchDaemons/com.local.embed-server.plist << EOF
 </plist>
 EOF
 
+# OCR Plist
+cat > /Library/LaunchDaemons/com.local.ocr-server.plist << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.local.ocr-server</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/mlx-ocr-launcher.sh</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>$PROJECT_DIR</string>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>KeepAlive</key>
+    <true/>
+    
+    <key>StandardOutPath</key>
+    <string>${LOG_BASE}/com.local.ocr-server/stdout.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>${LOG_BASE}/com.local.ocr-server/stderr.log</string>
+    
+    <key>UserName</key>
+    <string>$REAL_USER</string>
+    
+    <key>GroupName</key>
+    <string>staff</string>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>$USER_HOME</string>
+    </dict>
+</dict>
+</plist>
+EOF
+
 # Permissions
 chmod 644 /Library/LaunchDaemons/com.local.*.plist
 chown root:wheel /Library/LaunchDaemons/com.local.*.plist
@@ -226,9 +289,12 @@ launchctl bootout system /Library/LaunchDaemons/com.local.mlx-router.plist 2>/de
 launchctl bootout system /Library/LaunchDaemons/com.local.mlx-fast.plist 2>/dev/null || true
 launchctl bootout system /Library/LaunchDaemons/com.local.mlx-thinking.plist 2>/dev/null || true
 launchctl bootout system /Library/LaunchDaemons/com.local.embed-server.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.local.ocr-server.plist 2>/dev/null || true
 
-# Start them (Embedding first)
+# Start them (Embedding + OCR first)
 launchctl bootstrap system /Library/LaunchDaemons/com.local.embed-server.plist
+sleep 1
+launchctl bootstrap system /Library/LaunchDaemons/com.local.ocr-server.plist
 
 # Start Router
 launchctl bootstrap system /Library/LaunchDaemons/com.local.mlx-router.plist

@@ -38,13 +38,14 @@ chmod +x update-model.sh
 ### What gets installed
 - Nginx (reverse proxy, SSL via certbot webroot, optional allowlist/basic auth)
 - pf firewall (opens only SSH, 80, 443)
-- **4 AI Services** (LaunchDaemons):
+- **5 AI Services** (LaunchDaemons):
   - **Router Service** (Port 8082): Tiny, fast model for request classification
   - **Fast Service** (Port 8080): General purpose, low-latency model.
     - *Optimization:* Uses a custom monkey-patched server (`patched_mlx_server.py`) to enforce **8-bit KV cache quantization**. This reduces context memory usage by ~50%, allowing multiple 30B models to fit comfortably in RAM.
   - **Thinking Service** (Port 8081): High-reasoning model for complex tasks.
     - *Optimization:* Also uses 8-bit KV cache quantization.
   - **Embedding Service** (Port 8083): High-dimensional text embeddings
+  - **OCR Service** (Port 8085): OpenAI-compatible **vision** chat endpoint for OCR (olmOCR)
 - Static frontend as LaunchAgent/Daemon
 
 ### Performance Note: KV Cache Quantization
@@ -224,9 +225,93 @@ chmod +x update-model.sh
 
 # Update the Thinking model
 ./update-model.sh thinking mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit
+
+# Update the OCR (vision) model
+./update-model.sh ocr mlx-community/olmOCR-2-7B-1025-mlx-8bit
 ```
 
 The script will handle the rest. The server will download the new model (which can take some time) and load it.
+
+---
+
+## OCR service (olmOCR) — OpenAI-compatible vision chat
+
+This project includes an OCR/VLM service designed specifically for screenshots, receipts, and scanned documents.
+
+- **Service**: `com.local.ocr-server`
+- **Port**: `8085`
+- **API**: OpenAI-compatible `POST /v1/chat/completions`
+- **Model**: `mlx-community/olmOCR-2-7B-1025-mlx-8bit`
+
+### Configuration
+
+In your private `config/settings.toml`, add:
+
+```toml
+[services.ocr]
+port = 8085
+model = "mlx-community/olmOCR-2-7B-1025-mlx-8bit"
+```
+
+### How it works (implementation detail)
+
+Unlike the text tiers (which run `mlx_lm.server`), OCR runs a multimodal OpenAI-compatible server via `mlx-openai-server` (which uses `mlx-vlm` internally) so it can accept the standard `image_url` message parts while still exposing `/v1/*` endpoints.
+
+### Test on the real server
+
+1) Install/update Python deps (once):
+
+```sh
+cd models
+poetry install
+```
+
+2) Ensure the service is installed/bootstrapped (or reinstall all services):
+
+```sh
+sudo ./models/startup-services-install.sh
+```
+
+3) Confirm it’s up:
+
+```sh
+curl http://127.0.0.1:8085/v1/models
+```
+
+4) Send a real OCR request (base64 `data:` URL):
+
+```sh
+IMG="/path/to/image.png"
+B64=$(python3 - <<'PY'
+import base64, os, sys
+img = os.environ["IMG"]
+with open(img, "rb") as f:
+    print(base64.b64encode(f.read()).decode("utf-8"))
+PY
+)
+
+curl -s http://127.0.0.1:8085/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"model\": \"olmocr\",
+    \"messages\": [{
+      \"role\": \"user\",
+      \"content\": [
+        {\"type\": \"image_url\", \"image_url\": {\"url\": \"data:image/png;base64,${B64}\"}},
+        {\"type\": \"text\", \"text\": \"Extract all text from this image.\"}
+      ]
+    }],
+    \"max_tokens\": 1024,
+    \"stream\": false
+  }"
+```
+
+5) Monitor logs while it downloads/loads:
+
+```sh
+REAL_USER=${SUDO_USER:-$(whoami)}
+tail -f "/Users/${REAL_USER}/Library/Logs/com.local.ocr-server/stderr.log"
+```
 
 ---
 

@@ -56,6 +56,17 @@ host = "127.0.0.1"
   model = "Qwen/Qwen3-Embedding-8B"
   batch_size = 64
 
+  # --- OCR (Vision Chat) Service ---
+  #
+  # OpenAI-compatible /v1/chat/completions endpoint for vision OCR using an MLX VLM.
+  # Intended for screenshots, receipts, scanned docs, etc.
+  [services.ocr]
+  port = 8085
+  model = "mlx-community/olmOCR-2-7B-1025-mlx-8bit"
+  # Optional: tune server behavior (passed through to mlx-openai-server if set)
+  # context_length = 8192
+  # max_concurrency = 1
+
   # Configuration for the Frontend web service.
   [services.frontend]
   port = 8000
