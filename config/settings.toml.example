@@ -67,8 +67,6 @@ host = "127.0.0.1"
   # context_length = 8192
   # Strongly recommended: keep OCR stateless/isolated per request
   max_concurrency = 1
-  # Helps mlx-openai-server correctly interpret OpenAI vision message parts
-  message_converter = "qwen3_vl"
 
   # Configuration for the Frontend web service.
   [services.frontend]

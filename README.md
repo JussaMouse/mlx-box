@@ -253,7 +253,6 @@ port = 8085
 model = "mlx-community/olmOCR-2-7B-1025-mlx-8bit"
 # Recommended stability settings
 max_concurrency = 1
-message_converter = "qwen3_vl"
 ```
 
 ### How it works (implementation detail)

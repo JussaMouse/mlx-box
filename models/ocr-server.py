@@ -49,7 +49,6 @@ def main():
     # Default to single-worker to avoid any potential cross-request mixing bugs
     # in multimodal pipelines. You can raise this once stable.
     max_concurrency = ocr_config.get("max_concurrency", 1)
-    message_converter = ocr_config.get("message_converter")
 
     if not model_id:
         print("❌ OCR model not configured under [services.ocr] in settings.toml", file=sys.stderr)
@@ -82,9 +81,6 @@ def main():
 
     if max_concurrency is not None:
         cmd.extend(["--max-concurrency", str(int(max_concurrency))])
-
-    if message_converter:
-        cmd.extend(["--message-converter", str(message_converter)])
 
     print(f"🚀 Starting olmOCR OpenAI server on http://{host}:{port}/v1")
     print(f"📦 Model: {model_id}")
