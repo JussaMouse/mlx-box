@@ -498,6 +498,60 @@ sudo tar -czvf mlx-box-backup-$(date +%Y-%m-%d).tar.gz /absolute/path/to/mlx-box
 
 ---
 
+## 7. Remote Access via SSH Tunnel
+
+Access MLX models from remote machines via SSH tunnels over Tailscale. The services remain bound to `127.0.0.1` (localhost only) - tunnels provide secure encrypted access without exposing ports.
+
+### Setup
+
+**On client machine:**
+
+1. Get server's Tailscale IP:
+   ```bash
+   # On mlx-box server
+   tailscale ip -4  # e.g., 100.74.53.118
+   ```
+
+2. Create SSH tunnel (replace `<SSH_PORT>` from your `settings.env` and `<TAILSCALE_IP>`):
+   ```bash
+   ssh -p <SSH_PORT> \
+       -L 8080:127.0.0.1:8080 \
+       -L 8081:127.0.0.1:8081 \
+       -L 8082:127.0.0.1:8082 \
+       -L 8083:127.0.0.1:8083 \
+       -L 8085:127.0.0.1:8085 \
+       user@<TAILSCALE_IP>
+   ```
+
+3. Test: `curl http://127.0.0.1:8080/v1/models`
+
+**Port mapping:**
+- 8080: Fast model (CHAT_PORT)
+- 8081: Thinking model
+- 8082: Router model
+- 8083: Embeddings (EMBED_PORT)
+- 8085: OCR/Vision model
+
+**For persistent tunnels**, add to `~/.ssh/config`:
+```
+Host mlx-box
+    HostName <TAILSCALE_IP>
+    Port <SSH_PORT>
+    User <username>
+    LocalForward 8080 127.0.0.1:8080
+    LocalForward 8081 127.0.0.1:8081
+    LocalForward 8082 127.0.0.1:8082
+    LocalForward 8083 127.0.0.1:8083
+    LocalForward 8085 127.0.0.1:8085
+    ServerAliveInterval 60
+```
+
+Then: `ssh mlx-box`
+
+**Multiple clients:** Can connect simultaneously via separate tunnels. Requests queue independently with proper response routing.
+
+---
+
 ## Scripts: System Info and Reports
 
 These helper scripts capture system details and generate a consolidated report for post-install validation and ongoing troubleshooting.
