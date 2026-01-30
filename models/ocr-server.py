@@ -55,7 +55,8 @@ server_config = config.get("server", {})
 ocr_config = config.get("services", {}).get("ocr", {})
 
 HOST = server_config.get("host", "127.0.0.1")
-PORT = int(ocr_config.get("port", 8085))
+# Use backend_port if available (for auth proxy setup), otherwise use port
+PORT = int(ocr_config.get("backend_port") or ocr_config.get("port", 8085))
 MODEL_ID = ocr_config.get("model")
 
 DEFAULT_MAX_TOKENS = int(ocr_config.get("max_tokens", 1024))

@@ -18,6 +18,11 @@ letsencrypt_email = "admin@example.com"
 # this MUST be "127.0.0.1".
 host = "127.0.0.1"
 
+# API key for authenticating requests to MLX services.
+# Set this to secure access over Tailscale or network connections.
+# Clients must send this as: Authorization: Bearer <api_key>
+api_key = "your-secret-api-key-here"
+
 [services]
   # Configuration for the secure shell (SSH) service.
   [services.ssh]
@@ -28,30 +33,34 @@ host = "127.0.0.1"
   # Tier 0: Router Service
   # Lightweight model for request classification and trivial queries
   [services.router]
-  port = 8082
+  port = 8082          # Frontend port (with auth)
+  backend_port = 8092  # Backend MLX server port (no auth)
   model = "mlx-community/Qwen3-0.6B-4bit"
   max_tokens = 100
 
   # Tier 1 & 2: Fast Service
   # General purpose, low-latency model for most queries and simple tools
   [services.fast]
-  port = 8080
+  port = 8080          # Frontend port (with auth)
+  backend_port = 8090  # Backend MLX server port (no auth)
   model = "mlx-community/Qwen3-30B-A3B-4bit"
   max_tokens = 4096
 
   # Tier 3: Thinking Service
   # High-reasoning model for complex tasks, coding, and planning
   [services.thinking]
-  port = 8081
+  port = 8081          # Frontend port (with auth)
+  backend_port = 8091  # Backend MLX server port (no auth)
   model = "mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit"
   max_tokens = 8192
   thinking_budget = 4096
 
   # --- Embedding Service ---
-  
+
   # Configuration for the Embedding service.
   [services.embedding]
-  port = 8083
+  port = 8083          # Frontend port (with auth)
+  backend_port = 8093  # Backend service port (no auth)
   # The SentenceTransformer model to use for embeddings.
   model = "Qwen/Qwen3-Embedding-8B"
   batch_size = 64
@@ -61,7 +70,8 @@ host = "127.0.0.1"
   # OpenAI-compatible /v1/chat/completions endpoint for vision OCR using an MLX VLM.
   # Intended for screenshots, receipts, scanned docs, etc.
   [services.ocr]
-  port = 8085
+  port = 8085          # Frontend port (with auth)
+  backend_port = 8095  # Backend service port (no auth)
   model = "mlx-community/olmOCR-2-7B-1025-mlx-8bit"
   # Optional: tune server behavior (passed through to mlx-openai-server if set)
   # context_length = 8192

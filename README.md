@@ -498,7 +498,75 @@ sudo tar -czvf mlx-box-backup-$(date +%Y-%m-%d).tar.gz /absolute/path/to/mlx-box
 
 ---
 
-## 7. Remote Access via SSH Tunnel
+## 7. API Key Authentication
+
+MLX services support API key authentication to secure access over Tailscale or network connections. This protects against unauthorized access when services are exposed beyond localhost.
+
+### Architecture
+
+The authentication system uses a two-layer approach:
+- **Frontend layer** (authenticated): Clients connect here with API key validation
+- **Backend layer** (no auth): Actual MLX services run here on localhost-only
+
+```
+Client → [Frontend Port + Auth Proxy] → [Backend Port + MLX Service]
+```
+
+### Configuration
+
+1. **Set API Key** in `config/settings.toml`:
+```toml
+[server]
+api_key = "your-secret-api-key-here"
+```
+
+2. **Port Mappings** (automatically configured):
+
+| Service | Frontend Port (auth) | Backend Port (MLX) |
+|---------|---------------------|-------------------|
+| Router  | 8082               | 8092              |
+| Fast    | 8080               | 8090              |
+| Thinking| 8081               | 8091              |
+| Embedding| 8083              | 8093              |
+| OCR     | 8085               | 8095              |
+
+### Client Configuration
+
+Clients must send the API key in the Authorization header:
+```bash
+curl http://127.0.0.1:8080/v1/models \
+  -H "Authorization: Bearer your-secret-api-key-here"
+```
+
+For OpenAI-compatible clients:
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8080/v1",
+    api_key="your-secret-api-key-here"
+)
+```
+
+### Security Model
+
+- **SSH Tunnel access**: API key validation ensures only authorized clients can use services
+- **Tailscale access**: Protects against unauthorized access from Tailscale network peers
+- **Siri/External clients**: Validates all network requests to Bartleby → MLX chain
+
+### Disabling Authentication
+
+To run without authentication (localhost-only development), leave `api_key` empty in `settings.toml`:
+```toml
+[server]
+api_key = ""
+```
+
+**Warning**: Only disable auth if services are strictly localhost-only and never exposed via Tailscale or network.
+
+---
+
+## 8. Remote Access via SSH Tunnel
 
 Access MLX models from remote machines via SSH tunnels over Tailscale. The services remain bound to `127.0.0.1` (localhost only) - tunnels provide secure encrypted access without exposing ports.
 

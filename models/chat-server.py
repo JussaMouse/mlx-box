@@ -78,7 +78,8 @@ def main():
         sys.exit(1)
 
     model_name = service_config.get("model")
-    port = service_config.get("port", 8080)
+    # Use backend_port if available (for auth proxy setup), otherwise use port
+    port = service_config.get("backend_port") or service_config.get("port", 8080)
     max_tokens = service_config.get("max_tokens", 4096)
     
     # Special config for thinking model (not used by CLI directly but good to track)

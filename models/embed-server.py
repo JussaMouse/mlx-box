@@ -44,7 +44,8 @@ server_config = config.get("server", {})
 # Global model instance
 model = None
 model_name = embed_config.get("model")
-port = embed_config.get("port", 8083)
+# Use backend_port if available (for auth proxy setup), otherwise use port
+port = embed_config.get("backend_port") or embed_config.get("port", 8083)
 batch_size = embed_config.get("batch_size", 64)
 host = server_config.get("host", "127.0.0.1")
 
