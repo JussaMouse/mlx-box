@@ -182,41 +182,18 @@ sudo chown root:wheel "$OCR_BACKEND_LAUNCHER"
 echo "  Created backend launcher: $OCR_BACKEND_LAUNCHER"
 
 echo "🔧 Reading port configuration from settings.toml..."
-# Parse ports from settings.toml using Python
-read -r ROUTER_PORT ROUTER_BACKEND < <(run_as_user python3 -c "
-import tomlkit
-with open('$CONFIG_DIR/settings.toml', 'r') as f:
-    config = tomlkit.load(f)
-print(config['services']['router'].get('port', 8082), config['services']['router'].get('backend_port', 8092))
-")
+# Parse ports from settings.toml using Python via Poetry
+PARSE_CMD="import tomlkit; c = tomlkit.load(open('$CONFIG_DIR/settings.toml'))"
 
-read -r FAST_PORT FAST_BACKEND < <(run_as_user python3 -c "
-import tomlkit
-with open('$CONFIG_DIR/settings.toml', 'r') as f:
-    config = tomlkit.load(f)
-print(config['services']['fast'].get('port', 8080), config['services']['fast'].get('backend_port', 8090))
-")
+read -r ROUTER_PORT ROUTER_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['router'].get('port', 8082), c['services']['router'].get('backend_port', 8092))\"")
 
-read -r THINKING_PORT THINKING_BACKEND < <(run_as_user python3 -c "
-import tomlkit
-with open('$CONFIG_DIR/settings.toml', 'r') as f:
-    config = tomlkit.load(f)
-print(config['services']['thinking'].get('port', 8081), config['services']['thinking'].get('backend_port', 8091))
-")
+read -r FAST_PORT FAST_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['fast'].get('port', 8080), c['services']['fast'].get('backend_port', 8090))\"")
 
-read -r EMBEDDING_PORT EMBEDDING_BACKEND < <(run_as_user python3 -c "
-import tomlkit
-with open('$CONFIG_DIR/settings.toml', 'r') as f:
-    config = tomlkit.load(f)
-print(config['services']['embedding'].get('port', 8083), config['services']['embedding'].get('backend_port', 8093))
-")
+read -r THINKING_PORT THINKING_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['thinking'].get('port', 8081), c['services']['thinking'].get('backend_port', 8091))\"")
 
-read -r OCR_PORT OCR_BACKEND < <(run_as_user python3 -c "
-import tomlkit
-with open('$CONFIG_DIR/settings.toml', 'r') as f:
-    config = tomlkit.load(f)
-print(config['services']['ocr'].get('port', 8085), config['services']['ocr'].get('backend_port', 8095))
-")
+read -r EMBEDDING_PORT EMBEDDING_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['embedding'].get('port', 8083), c['services']['embedding'].get('backend_port', 8093))\"")
+
+read -r OCR_PORT OCR_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['ocr'].get('port', 8085), c['services']['ocr'].get('backend_port', 8095))\"")
 
 echo "  Router: frontend=$ROUTER_PORT, backend=$ROUTER_BACKEND"
 echo "  Fast: frontend=$FAST_PORT, backend=$FAST_BACKEND"
