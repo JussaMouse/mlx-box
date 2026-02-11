@@ -1,16 +1,16 @@
 #!/bin/bash
 
-# Install Startup Services for Local AI Models (3-Tier Architecture)
+# Install Startup Services for Local AI Models (3-Tier Architecture with Auth Proxies)
 # Run with: sudo ./install-startup-services.sh
 
 set -e
 
-echo "🚀 Installing Local AI Model Startup Services (3-Tier)"
-echo "===================================================="
+echo "🚀 Installing Local AI Model Startup Services (3-Tier with Auth Proxies)"
+echo "========================================================================"
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
-    echo "❌ Please run as root: sudo ./install-startup-services.sh"
+    echo "❌ Please run as root: sudo ./startup-services-install.sh"
     exit 1
 fi
 
@@ -19,14 +19,23 @@ REAL_USER=${SUDO_USER:-$(whoami)}
 USER_HOME="/Users/$REAL_USER"
 # Dynamically determine the absolute path to the project directory.
 PROJECT_DIR=$(cd "$(dirname "$0")" && pwd)
+CONFIG_DIR="$PROJECT_DIR/../config"
 
 echo "👤 User: $REAL_USER"
 echo "🏠 Home: $USER_HOME"
 echo "📁 Project: $PROJECT_DIR"
+echo "⚙️  Config: $CONFIG_DIR"
 
 # Check if project directory exists
 if [ ! -d "$PROJECT_DIR" ]; then
     echo "❌ Project directory not found: $PROJECT_DIR"
+    exit 1
+fi
+
+# Check if settings.toml exists
+if [ ! -f "$CONFIG_DIR/settings.toml" ]; then
+    echo "❌ Configuration file not found: $CONFIG_DIR/settings.toml"
+    echo "   Please copy settings.toml.example to settings.toml and configure it"
     exit 1
 fi
 
@@ -46,10 +55,6 @@ fi
 echo "📦 Poetry: $POETRY_PATH"
 
 # --- Python/Poetry environment hardening ---
-# The OCR service depends on mlx-openai-server/mlx-vlm which currently requires Python < 3.13.
-# After macOS/software upgrades, the "default" python may become 3.13 and break dependency resolution.
-# We force the Poetry env for this project to use Homebrew python@3.12.
-
 BREW_BIN=""
 if [ -x "/opt/homebrew/bin/brew" ]; then
     BREW_BIN="/opt/homebrew/bin/brew"
@@ -75,22 +80,23 @@ if [ ! -x "$PY312" ]; then
 fi
 
 echo "🔧 Ensuring Poetry uses Python 3.12 for this project..."
-# Run Poetry from the models/ directory so it finds pyproject.toml even when
-# this script is invoked from the repo root (e.g. sudo ./models/startup-services-install.sh).
 run_as_user bash -lc "cd \"$PROJECT_DIR\" && \"$POETRY_PATH\" env use \"$PY312\""
 echo "📦 Installing/updating Python deps (poetry install)..."
-# Use --no-root so Poetry doesn't try to install the "models" project as a package.
-# This avoids failures due to packaging metadata (e.g. missing models/README.md).
 run_as_user bash -lc "cd \"$PROJECT_DIR\" && \"$POETRY_PATH\" install --no-interaction --no-root"
 
-# Create log directories for all 5 services
+# Create log directories for all services (both backend and frontend)
 LOG_BASE="$USER_HOME/Library/Logs"
 SERVICES=(
-    "com.local.mlx-router" 
-    "com.local.mlx-fast" 
-    "com.local.mlx-thinking" 
-    "com.local.embed-server"
-    "com.local.ocr-server"
+    "com.mlx-box.router-backend"
+    "com.mlx-box.router"
+    "com.mlx-box.fast-backend"
+    "com.mlx-box.fast"
+    "com.mlx-box.thinking-backend"
+    "com.mlx-box.thinking"
+    "com.mlx-box.embedding-backend"
+    "com.mlx-box.embedding"
+    "com.mlx-box.ocr-backend"
+    "com.mlx-box.ocr"
 )
 
 for service in "${SERVICES[@]}"; do
@@ -98,74 +104,96 @@ for service in "${SERVICES[@]}"; do
     chown -R "$REAL_USER" "$LOG_BASE/$service"
 done
 
-echo "📝 Creating LaunchDaemon plist files..."
+echo "📝 Creating LaunchDaemon files..."
 
 # Ensure /usr/local/bin exists
 sudo mkdir -p /usr/local/bin
 sudo chown root:wheel /usr/local/bin || true
 
-# Helper function to create Chat Launchers
-create_launcher() {
+# Helper function to create Backend MLX Service Launchers
+create_backend_launcher() {
     local NAME=$1
     local SERVICE_ARG=$2
-    local LAUNCHER_PATH="/usr/local/bin/mlx-${NAME}-launcher.sh"
-    
-    # We need to find the VENV path. This is tricky as root.
-    # We'll use a hack to ask poetry where the venv is as the user.
-    # For now, we rely on the install script running `poetry install` previously.
-    # Note: In the previous script, VENV_PY was hardcoded or assumed. 
-    # Here we will try to make the launcher robust by cd-ing and running poetry run.
-    
+    local LAUNCHER_PATH="/usr/local/bin/mlx-${NAME}-backend-launcher.sh"
+
     sudo tee "$LAUNCHER_PATH" > /dev/null << SH
 #!/bin/bash
 export HOME="$USER_HOME"
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$USER_HOME/.local/bin"
-
-# Navigate to project dir
 cd "$PROJECT_DIR" || exit 1
-
-# Execute via poetry using the specific service argument
 exec "$POETRY_PATH" run python3 chat-server.py --service $SERVICE_ARG
 SH
     sudo chmod 755 "$LAUNCHER_PATH"
     sudo chown root:wheel "$LAUNCHER_PATH"
-    echo "Created launcher: $LAUNCHER_PATH"
+    echo "  Created backend launcher: $LAUNCHER_PATH"
 }
 
-create_launcher "router" "router"
-create_launcher "fast" "fast"
-create_launcher "thinking" "thinking"
+# Helper function to create Frontend Auth Proxy Launchers
+create_frontend_launcher() {
+    local SERVICE=$1
+    local FRONTEND_PORT=$2
+    local BACKEND_PORT=$3
+    local LAUNCHER_PATH="/usr/local/bin/mlx-${SERVICE}-auth-launcher.sh"
 
-# Embed launcher is slightly different (different script)
-EMBED_LAUNCHER="/usr/local/bin/mlx-embed-launcher.sh"
-sudo tee "$EMBED_LAUNCHER" > /dev/null << SH
+    sudo tee "$LAUNCHER_PATH" > /dev/null << SH
+#!/bin/bash
+export HOME="$USER_HOME"
+export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$USER_HOME/.local/bin"
+cd "$PROJECT_DIR" || exit 1
+exec "$POETRY_PATH" run python3 auth-proxy.py \\
+    --service $SERVICE \\
+    --frontend-port $FRONTEND_PORT \\
+    --backend-port $BACKEND_PORT
+SH
+    sudo chmod 755 "$LAUNCHER_PATH"
+    sudo chown root:wheel "$LAUNCHER_PATH"
+    echo "  Created auth proxy launcher: $LAUNCHER_PATH"
+}
+
+echo "🔧 Creating Backend MLX Service Launchers..."
+create_backend_launcher "router" "router"
+create_backend_launcher "fast" "fast"
+create_backend_launcher "thinking" "thinking"
+
+# Embed backend launcher
+EMBED_BACKEND_LAUNCHER="/usr/local/bin/mlx-embedding-backend-launcher.sh"
+sudo tee "$EMBED_BACKEND_LAUNCHER" > /dev/null << SH
 #!/bin/bash
 export HOME="$USER_HOME"
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$USER_HOME/.local/bin"
 cd "$PROJECT_DIR" || exit 1
 exec "$POETRY_PATH" run python3 embed-server.py
 SH
-sudo chmod 755 "$EMBED_LAUNCHER"
-sudo chown root:wheel "$EMBED_LAUNCHER"
+sudo chmod 755 "$EMBED_BACKEND_LAUNCHER"
+sudo chown root:wheel "$EMBED_BACKEND_LAUNCHER"
+echo "  Created backend launcher: $EMBED_BACKEND_LAUNCHER"
 
-# OCR launcher (OpenAI-compatible vision chat via mlx-openai-server)
-OCR_LAUNCHER="/usr/local/bin/mlx-ocr-launcher.sh"
-sudo tee "$OCR_LAUNCHER" > /dev/null << SH
+# OCR backend launcher
+OCR_BACKEND_LAUNCHER="/usr/local/bin/mlx-ocr-backend-launcher.sh"
+sudo tee "$OCR_BACKEND_LAUNCHER" > /dev/null << SH
 #!/bin/bash
 export HOME="$USER_HOME"
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$USER_HOME/.local/bin"
 cd "$PROJECT_DIR" || exit 1
 exec "$POETRY_PATH" run python3 ocr-server.py
 SH
-sudo chmod 755 "$OCR_LAUNCHER"
-sudo chown root:wheel "$OCR_LAUNCHER"
+sudo chmod 755 "$OCR_BACKEND_LAUNCHER"
+sudo chown root:wheel "$OCR_BACKEND_LAUNCHER"
+echo "  Created backend launcher: $OCR_BACKEND_LAUNCHER"
 
-# Helper function to create Chat Plists
-create_chat_plist() {
+echo "🔧 Creating Frontend Auth Proxy Launchers..."
+create_frontend_launcher "router" 8082 8092
+create_frontend_launcher "fast" 8080 8090
+create_frontend_launcher "thinking" 8081 8091
+create_frontend_launcher "embedding" 8083 8093
+create_frontend_launcher "ocr" 8085 8095
+
+# Helper function to create Backend MLX Service Plists
+create_backend_plist() {
     local NAME=$1
-    local PLIST_NAME="com.local.mlx-${NAME}"
-    local LAUNCHER_PATH="/usr/local/bin/mlx-${NAME}-launcher.sh"
-    
+    local PLIST_NAME="com.mlx-box.${NAME}-backend"
+    local LAUNCHER_PATH="/usr/local/bin/mlx-${NAME}-backend-launcher.sh"
+
     cat > "/Library/LaunchDaemons/${PLIST_NAME}.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -173,33 +201,33 @@ create_chat_plist() {
 <dict>
     <key>Label</key>
     <string>${PLIST_NAME}</string>
-    
+
     <key>ProgramArguments</key>
     <array>
         <string>${LAUNCHER_PATH}</string>
     </array>
-    
+
     <key>WorkingDirectory</key>
     <string>$PROJECT_DIR</string>
-    
+
     <key>RunAtLoad</key>
     <true/>
-    
+
     <key>KeepAlive</key>
     <true/>
-    
+
     <key>StandardOutPath</key>
     <string>${LOG_BASE}/${PLIST_NAME}/stdout.log</string>
-    
+
     <key>StandardErrorPath</key>
     <string>${LOG_BASE}/${PLIST_NAME}/stderr.log</string>
-    
+
     <key>UserName</key>
     <string>$REAL_USER</string>
-    
+
     <key>GroupName</key>
     <string>staff</string>
-    
+
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
@@ -212,45 +240,46 @@ create_chat_plist() {
 EOF
 }
 
-create_chat_plist "router"
-create_chat_plist "fast"
-create_chat_plist "thinking"
+# Helper function to create Frontend Auth Proxy Plists
+create_frontend_plist() {
+    local NAME=$1
+    local PLIST_NAME="com.mlx-box.${NAME}"
+    local LAUNCHER_PATH="/usr/local/bin/mlx-${NAME}-auth-launcher.sh"
 
-# Embed Plist
-cat > /Library/LaunchDaemons/com.local.embed-server.plist << EOF
+    cat > "/Library/LaunchDaemons/${PLIST_NAME}.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.local.embed-server</string>
-    
+    <string>${PLIST_NAME}</string>
+
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/mlx-embed-launcher.sh</string>
+        <string>${LAUNCHER_PATH}</string>
     </array>
-    
+
     <key>WorkingDirectory</key>
     <string>$PROJECT_DIR</string>
-    
+
     <key>RunAtLoad</key>
     <true/>
-    
+
     <key>KeepAlive</key>
     <true/>
-    
+
     <key>StandardOutPath</key>
-    <string>${LOG_BASE}/com.local.embed-server/stdout.log</string>
-    
+    <string>${LOG_BASE}/${PLIST_NAME}/stdout.log</string>
+
     <key>StandardErrorPath</key>
-    <string>${LOG_BASE}/com.local.embed-server/stderr.log</string>
-    
+    <string>${LOG_BASE}/${PLIST_NAME}/stderr.log</string>
+
     <key>UserName</key>
     <string>$REAL_USER</string>
-    
+
     <key>GroupName</key>
     <string>staff</string>
-    
+
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
@@ -261,92 +290,91 @@ cat > /Library/LaunchDaemons/com.local.embed-server.plist << EOF
 </dict>
 </plist>
 EOF
+}
 
-# OCR Plist
-cat > /Library/LaunchDaemons/com.local.ocr-server.plist << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.local.ocr-server</string>
-    
-    <key>ProgramArguments</key>
-    <array>
-        <string>/usr/local/bin/mlx-ocr-launcher.sh</string>
-    </array>
-    
-    <key>WorkingDirectory</key>
-    <string>$PROJECT_DIR</string>
-    
-    <key>RunAtLoad</key>
-    <true/>
-    
-    <key>KeepAlive</key>
-    <true/>
-    
-    <key>StandardOutPath</key>
-    <string>${LOG_BASE}/com.local.ocr-server/stdout.log</string>
-    
-    <key>StandardErrorPath</key>
-    <string>${LOG_BASE}/com.local.ocr-server/stderr.log</string>
-    
-    <key>UserName</key>
-    <string>$REAL_USER</string>
-    
-    <key>GroupName</key>
-    <string>staff</string>
-    
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-        <key>HOME</key>
-        <string>$USER_HOME</string>
-    </dict>
-</dict>
-</plist>
-EOF
+echo "📝 Creating Backend MLX Service Plists..."
+create_backend_plist "router"
+create_backend_plist "fast"
+create_backend_plist "thinking"
+create_backend_plist "embedding"
+create_backend_plist "ocr"
+
+echo "📝 Creating Frontend Auth Proxy Plists..."
+create_frontend_plist "router"
+create_frontend_plist "fast"
+create_frontend_plist "thinking"
+create_frontend_plist "embedding"
+create_frontend_plist "ocr"
 
 # Permissions
-chmod 644 /Library/LaunchDaemons/com.local.*.plist
-chown root:wheel /Library/LaunchDaemons/com.local.*.plist
+chmod 644 /Library/LaunchDaemons/com.mlx-box.*.plist
+chown root:wheel /Library/LaunchDaemons/com.mlx-box.*.plist
 
 echo "✅ LaunchDaemon files created"
 
-# Cleanup old single-chat service if it exists
+# Cleanup old services
 echo "🧹 Cleaning up legacy services..."
 launchctl bootout system /Library/LaunchDaemons/com.local.mlx-chat-server.plist 2>/dev/null || true
-rm -f /Library/LaunchDaemons/com.local.mlx-chat-server.plist
-
-# Load new services
-echo "🔄 Loading 3-Tier services..."
-
-# Bootout existing new services to ensure clean reload
 launchctl bootout system /Library/LaunchDaemons/com.local.mlx-router.plist 2>/dev/null || true
 launchctl bootout system /Library/LaunchDaemons/com.local.mlx-fast.plist 2>/dev/null || true
 launchctl bootout system /Library/LaunchDaemons/com.local.mlx-thinking.plist 2>/dev/null || true
 launchctl bootout system /Library/LaunchDaemons/com.local.embed-server.plist 2>/dev/null || true
 launchctl bootout system /Library/LaunchDaemons/com.local.ocr-server.plist 2>/dev/null || true
+rm -f /Library/LaunchDaemons/com.local.mlx-*.plist
+rm -f /Library/LaunchDaemons/com.local.embed-server.plist
+rm -f /Library/LaunchDaemons/com.local.ocr-server.plist
 
-# Start them (Embedding + OCR first)
-launchctl bootstrap system /Library/LaunchDaemons/com.local.embed-server.plist
+# Bootout any existing new services
+echo "🔄 Stopping existing services..."
+launchctl bootout system /Library/LaunchDaemons/com.mlx-box.router-backend.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.mlx-box.router.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.mlx-box.fast-backend.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.mlx-box.fast.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.mlx-box.thinking-backend.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.mlx-box.thinking.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.mlx-box.embedding-backend.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.mlx-box.embedding.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.mlx-box.ocr-backend.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.mlx-box.ocr.plist 2>/dev/null || true
+
+# Start Backend services first (they must be running before auth proxies)
+echo "🚀 Starting Backend MLX Services..."
+launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.embedding-backend.plist
+sleep 2
+launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.ocr-backend.plist
+sleep 2
+launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.router-backend.plist
+sleep 2
+launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.fast-backend.plist
+sleep 2
+launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.thinking-backend.plist
+
+# Give backends time to start
+echo "⏳ Waiting for backend services to initialize..."
+sleep 5
+
+# Start Frontend auth proxies
+echo "🚀 Starting Frontend Auth Proxy Services..."
+launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.embedding.plist
 sleep 1
-launchctl bootstrap system /Library/LaunchDaemons/com.local.ocr-server.plist
-
-# Start Router
-launchctl bootstrap system /Library/LaunchDaemons/com.local.mlx-router.plist
-
-# Start Fast & Thinking (staggered slightly to avoid IO spike)
-sleep 2
-launchctl bootstrap system /Library/LaunchDaemons/com.local.mlx-fast.plist
-sleep 2
-launchctl bootstrap system /Library/LaunchDaemons/com.local.mlx-thinking.plist
+launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.ocr.plist
+sleep 1
+launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.router.plist
+sleep 1
+launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.fast.plist
+sleep 1
+launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.thinking.plist
 
 echo ""
 echo "🎉 All services installed and loaded!"
 echo "📊 Service Status:"
-launchctl list | grep com.local || true
+launchctl list | grep com.mlx-box || true
 
 echo ""
-echo "Please verify your endpoints match your config/settings.toml"
+echo "🔐 Auth Proxy Architecture:"
+echo "  Frontend (auth): 8080, 8081, 8082, 8083, 8085"
+echo "  Backend (MLX):   8090, 8091, 8092, 8093, 8095"
+echo ""
+echo "Check logs to verify authentication is enabled:"
+echo "  tail ~/Library/Logs/com.mlx-box.fast/stderr.log"
+echo ""
