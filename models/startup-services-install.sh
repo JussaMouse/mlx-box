@@ -181,12 +181,55 @@ sudo chmod 755 "$OCR_BACKEND_LAUNCHER"
 sudo chown root:wheel "$OCR_BACKEND_LAUNCHER"
 echo "  Created backend launcher: $OCR_BACKEND_LAUNCHER"
 
+echo "🔧 Reading port configuration from settings.toml..."
+# Parse ports from settings.toml using Python
+read -r ROUTER_PORT ROUTER_BACKEND < <(run_as_user python3 -c "
+import tomlkit
+with open('$CONFIG_DIR/settings.toml', 'r') as f:
+    config = tomlkit.load(f)
+print(config['services']['router'].get('port', 8082), config['services']['router'].get('backend_port', 8092))
+")
+
+read -r FAST_PORT FAST_BACKEND < <(run_as_user python3 -c "
+import tomlkit
+with open('$CONFIG_DIR/settings.toml', 'r') as f:
+    config = tomlkit.load(f)
+print(config['services']['fast'].get('port', 8080), config['services']['fast'].get('backend_port', 8090))
+")
+
+read -r THINKING_PORT THINKING_BACKEND < <(run_as_user python3 -c "
+import tomlkit
+with open('$CONFIG_DIR/settings.toml', 'r') as f:
+    config = tomlkit.load(f)
+print(config['services']['thinking'].get('port', 8081), config['services']['thinking'].get('backend_port', 8091))
+")
+
+read -r EMBEDDING_PORT EMBEDDING_BACKEND < <(run_as_user python3 -c "
+import tomlkit
+with open('$CONFIG_DIR/settings.toml', 'r') as f:
+    config = tomlkit.load(f)
+print(config['services']['embedding'].get('port', 8083), config['services']['embedding'].get('backend_port', 8093))
+")
+
+read -r OCR_PORT OCR_BACKEND < <(run_as_user python3 -c "
+import tomlkit
+with open('$CONFIG_DIR/settings.toml', 'r') as f:
+    config = tomlkit.load(f)
+print(config['services']['ocr'].get('port', 8085), config['services']['ocr'].get('backend_port', 8095))
+")
+
+echo "  Router: frontend=$ROUTER_PORT, backend=$ROUTER_BACKEND"
+echo "  Fast: frontend=$FAST_PORT, backend=$FAST_BACKEND"
+echo "  Thinking: frontend=$THINKING_PORT, backend=$THINKING_BACKEND"
+echo "  Embedding: frontend=$EMBEDDING_PORT, backend=$EMBEDDING_BACKEND"
+echo "  OCR: frontend=$OCR_PORT, backend=$OCR_BACKEND"
+
 echo "🔧 Creating Frontend Auth Proxy Launchers..."
-create_frontend_launcher "router" 8082 8092
-create_frontend_launcher "fast" 8080 8090
-create_frontend_launcher "thinking" 8081 8091
-create_frontend_launcher "embedding" 8083 8093
-create_frontend_launcher "ocr" 8085 8095
+create_frontend_launcher "router" $ROUTER_PORT $ROUTER_BACKEND
+create_frontend_launcher "fast" $FAST_PORT $FAST_BACKEND
+create_frontend_launcher "thinking" $THINKING_PORT $THINKING_BACKEND
+create_frontend_launcher "embedding" $EMBEDDING_PORT $EMBEDDING_BACKEND
+create_frontend_launcher "ocr" $OCR_PORT $OCR_BACKEND
 
 # Helper function to create Backend MLX Service Plists
 create_backend_plist() {
@@ -372,8 +415,8 @@ launchctl list | grep com.mlx-box || true
 
 echo ""
 echo "🔐 Auth Proxy Architecture:"
-echo "  Frontend (auth): 8080, 8081, 8082, 8083, 8085"
-echo "  Backend (MLX):   8090, 8091, 8092, 8093, 8095"
+echo "  Frontend (auth): router=$ROUTER_PORT, fast=$FAST_PORT, thinking=$THINKING_PORT, embedding=$EMBEDDING_PORT, ocr=$OCR_PORT"
+echo "  Backend (MLX):   router=$ROUTER_BACKEND, fast=$FAST_BACKEND, thinking=$THINKING_BACKEND, embedding=$EMBEDDING_BACKEND, ocr=$OCR_BACKEND"
 echo ""
 echo "Check logs to verify authentication is enabled:"
 echo "  tail ~/Library/Logs/com.mlx-box.fast/stderr.log"
