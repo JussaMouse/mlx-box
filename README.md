@@ -514,13 +514,33 @@ Client → [Frontend Port + Auth Proxy] → [Backend Port + MLX Service]
 
 ### Configuration
 
-1. **Set API Key** in `config/settings.toml`:
+**Option 1: Single API Key** (backward compatible)
 ```toml
 [server]
 api_key = "your-secret-api-key-here"
 ```
 
-2. **Port Mappings** (automatically configured):
+**Option 2: Multiple API Keys** (recommended for multiple clients)
+```toml
+[server]
+api_keys = [
+    "production-bartleby-key-here",  # Production Bartleby instance
+    "development-bartleby-key-here", # Development/testing
+    "personal-client-key-here",      # Other clients
+]
+```
+
+**Generating secure keys:**
+```bash
+openssl rand -hex 32
+```
+
+**Why multiple keys?**
+- Different keys for production vs development environments
+- Separate keys per client for tracking and revocation
+- Disable one key without affecting others
+
+**Port Mappings** (automatically configured):
 
 | Service | Frontend Port (auth) | Backend Port (MLX) |
 |---------|---------------------|-------------------|
@@ -556,13 +576,35 @@ client = OpenAI(
 
 ### Disabling Authentication
 
-To run without authentication (localhost-only development), leave `api_key` empty in `settings.toml`:
+To run without authentication (localhost-only development), omit or leave empty both `api_key` and `api_keys` in `settings.toml`:
 ```toml
 [server]
-api_key = ""
+# api_key = ""      # No single key
+# api_keys = []     # No multiple keys
 ```
 
 **Warning**: Only disable auth if services are strictly localhost-only and never exposed via Tailscale or network.
+
+### After Configuration Changes
+
+When you add or modify API keys, restart all auth proxy services:
+```bash
+sudo launchctl kickstart -k system/com.mlx-box.router
+sudo launchctl kickstart -k system/com.mlx-box.fast
+sudo launchctl kickstart -k system/com.mlx-box.thinking
+sudo launchctl kickstart -k system/com.mlx-box.embedding
+sudo launchctl kickstart -k system/com.mlx-box.ocr
+```
+
+Verify authentication is working:
+```bash
+# Without key (should fail with 401)
+curl http://127.0.0.1:8080/v1/models
+
+# With key (should succeed)
+curl http://127.0.0.1:8080/v1/models \
+  -H "Authorization: Bearer your-key-here"
+```
 
 ---
 

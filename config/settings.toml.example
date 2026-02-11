@@ -18,10 +18,18 @@ letsencrypt_email = "admin@example.com"
 # this MUST be "127.0.0.1".
 host = "127.0.0.1"
 
-# API key for authenticating requests to MLX services.
-# Set this to secure access over Tailscale or network connections.
-# Clients must send this as: Authorization: Bearer <api_key>
-api_key = "your-secret-api-key-here"
+# API key authentication for MLX services.
+# Clients must send: Authorization: Bearer <api_key>
+
+# Option 1: Single API key (backward compatible)
+# api_key = "your-secret-api-key-here"
+
+# Option 2: Multiple API keys (recommended for multiple clients)
+api_keys = [
+    "production-bartleby-key-64-chars-here",  # Production Bartleby instance
+    "development-bartleby-key-64-chars-here", # Development/testing
+    # Add more keys as needed
+]
 
 [services]
   # Configuration for the secure shell (SSH) service.

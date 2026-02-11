@@ -30,15 +30,22 @@ def load_config():
         sys.exit(1)
 
 
-def create_auth_proxy(backend_port: int, api_key: Optional[str] = None):
+def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys: Optional[list] = None):
     """Create FastAPI app that proxies requests with authentication."""
     app = FastAPI(title="MLX Auth Proxy")
     backend_url = f"http://127.0.0.1:{backend_port}"
 
+    # Build list of valid keys (support both single api_key and multiple api_keys)
+    valid_keys = set()
+    if api_key:
+        valid_keys.add(api_key)
+    if api_keys:
+        valid_keys.update(api_keys)
+
     async def verify_api_key(request: Request) -> bool:
         """Verify the API key from Authorization header."""
-        if not api_key:
-            # No API key configured, allow all requests
+        if not valid_keys:
+            # No API keys configured, allow all requests
             return True
 
         auth_header = request.headers.get("Authorization", "")
@@ -46,7 +53,7 @@ def create_auth_proxy(backend_port: int, api_key: Optional[str] = None):
             return False
 
         token = auth_header[7:]  # Remove "Bearer " prefix
-        return token == api_key
+        return token in valid_keys
 
     @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"])
     async def proxy(path: str, request: Request):
@@ -124,11 +131,19 @@ def main():
     server_config = config.get("server", {})
     host = server_config.get("host", "127.0.0.1")
 
-    # Get API key from config
-    api_key = server_config.get("api_key")
+    # Get API key(s) from config (support both single and multiple keys)
+    api_key = server_config.get("api_key")  # Old single key format
+    api_keys = server_config.get("api_keys")  # New multiple keys format
 
+    # Count total valid keys
+    total_keys = 0
     if api_key:
-        print(f"🔐 Authentication enabled for {args.service} service")
+        total_keys += 1
+    if api_keys:
+        total_keys += len(api_keys)
+
+    if total_keys > 0:
+        print(f"🔐 Authentication enabled for {args.service} service ({total_keys} key(s) configured)")
     else:
         print(f"⚠️  WARNING: No API key configured - running without authentication")
 
@@ -138,7 +153,7 @@ def main():
     print()
 
     # Create and run proxy
-    app = create_auth_proxy(args.backend_port, api_key)
+    app = create_auth_proxy(args.backend_port, api_key, api_keys)
 
     uvicorn.run(
         app,
