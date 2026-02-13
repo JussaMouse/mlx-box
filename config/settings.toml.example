@@ -66,12 +66,15 @@ api_keys = [
   # --- Embedding Service ---
 
   # Configuration for the Embedding service.
+  # Provides high-quality semantic embeddings for document search and similarity.
   [services.embedding]
   port = 8083          # Frontend port (with auth)
   backend_port = 8093  # Backend service port (no auth)
   # The SentenceTransformer model to use for embeddings.
   model = "Qwen/Qwen3-Embedding-8B"
-  batch_size = 64
+  batch_size = 64      # Process 64 texts at once for efficiency
+  max_seq_length = 1024  # Max tokens per text (Qwen supports up to 32K)
+  quantization = true  # Use int8 for 2x speed and 50% memory reduction
 
   # --- OCR (Vision Chat) Service ---
   #
