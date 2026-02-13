@@ -6,10 +6,8 @@ Apple Silicon optimized embedding server for Qwen3 models
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.quantization import quantize_embeddings
 import uvicorn
 import torch
-import numpy as np
 from typing import List, Union, Optional
 from contextlib import asynccontextmanager
 import logging
@@ -132,17 +130,16 @@ async def create_embeddings(request: EmbeddingRequest):
         # Calculate tokens roughly for usage stats (approximation)
         prompt_tokens = sum(len(text.split()) for text in texts) # Very rough approx
 
-        # Generate embeddings
-        # Batch processing is handled by SentenceTransformer
-        embeddings = model.encode(texts, batch_size=batch_size, convert_to_numpy=True, show_progress_bar=False)
-
-        # Apply int8 quantization if enabled
+        # Generate embeddings with optional int8 quantization
+        # Using built-in precision parameter handles calibration internally
         # This reduces embedding size by 75% with minimal accuracy loss (~99%)
-        if use_quantization:
-            embeddings = quantize_embeddings(
-                embeddings,
-                precision="int8"
-            )
+        embeddings = model.encode(
+            texts,
+            batch_size=batch_size,
+            convert_to_numpy=True,
+            show_progress_bar=False,
+            precision="int8" if use_quantization else "float32"
+        )
 
         # Format response to match OpenAI API
         data = []
