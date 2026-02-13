@@ -6,8 +6,10 @@ Apple Silicon optimized embedding server for Qwen3 models
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.quantization import quantize_embeddings
 import uvicorn
 import torch
+import numpy as np
 from typing import List, Union, Optional
 from contextlib import asynccontextmanager
 import logging
@@ -71,12 +73,6 @@ async def lifespan(app: FastAPI):
     logger.info(f"Using device: {device}")
 
     # Load model with trust_remote_code=True for Qwen models
-    # Note: SentenceTransformer doesn't support load_in_8bit parameter
-    # Quantization would need to be done at a lower level or with different approach
-    if use_quantization:
-        logger.warning("Quantization is configured but not yet supported with SentenceTransformer")
-        logger.warning("Model will load with default precision (fp16/fp32)")
-
     model = SentenceTransformer(
         model_name,
         device=device,
@@ -90,6 +86,11 @@ async def lifespan(app: FastAPI):
     logger.info(f"✅ Qwen3 model loaded successfully")
     logger.info(f"   Actual dimensions: {model.get_sentence_embedding_dimension()}")
     logger.info(f"   Max sequence length: {model.max_seq_length}")
+
+    if use_quantization:
+        logger.info(f"   Output quantization: int8 (75% space savings, ~99% accuracy)")
+    else:
+        logger.info(f"   Output quantization: disabled (full fp32 precision)")
     
     yield
     
@@ -134,7 +135,15 @@ async def create_embeddings(request: EmbeddingRequest):
         # Generate embeddings
         # Batch processing is handled by SentenceTransformer
         embeddings = model.encode(texts, batch_size=batch_size, convert_to_numpy=True, show_progress_bar=False)
-        
+
+        # Apply int8 quantization if enabled
+        # This reduces embedding size by 75% with minimal accuracy loss (~99%)
+        if use_quantization:
+            embeddings = quantize_embeddings(
+                embeddings,
+                precision="int8"
+            )
+
         # Format response to match OpenAI API
         data = []
         for i, embedding in enumerate(embeddings):

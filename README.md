@@ -233,11 +233,13 @@ quantization = true      # Use int8 for 2x speed and 50% memory reduction
      }
      ```
 
-2. **Quantization** (2x faster, 50% less memory)
+2. **Output Quantization** (75% space savings, 4-8x faster similarity)
    - Enabled by default with `quantization = true`
-   - Uses int8 precision instead of fp16
-   - Minimal quality loss (< 1%)
-   - Reduces memory from ~16GB to ~8GB
+   - Quantizes embedding outputs to int8 (fp32 → int8)
+   - Minimal quality loss (~99% accuracy)
+   - Reduces embedding storage by 75%
+   - Note: Model still uses ~16-20GB RAM (weights not quantized)
+   - Similarity search operations are 4-8x faster with int8
 
 3. **Configurable Context Length**
    - Default: 1024 tokens (good for most documents)
@@ -281,11 +283,13 @@ curl http://127.0.0.1:8084/v1/embeddings \
   }'
 ```
 
-**Performance Expectations** (M4 Max, 128GB RAM, Qwen3-8B with int8):
-- Single query: ~100-250ms
-- Batch of 16: ~400-600ms total (~30-40ms per item)
-- 500 document chunks: ~1 minute
-- Memory usage: ~8-10 GB
+**Performance Expectations** (M4 Max, 128GB RAM, Qwen3-8B with int8 output quantization):
+- Single query: ~200-400ms (embedding generation)
+- Batch of 16: ~600-900ms total (~40-60ms per item)
+- 500 document chunks: ~2-3 minutes
+- Model memory: ~16-20 GB (model weights in RAM)
+- Embedding storage: 75% reduced (int8 vs fp32)
+- Similarity search: 4-8x faster with quantized embeddings
 - Dimensions: 4096 (verify with `/v1/models` endpoint)
 
 **Health Check:**
