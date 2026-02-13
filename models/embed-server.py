@@ -137,16 +137,25 @@ async def create_embeddings(request: EmbeddingRequest):
         # Calculate tokens roughly for usage stats (approximation)
         prompt_tokens = sum(len(text.split()) for text in texts) # Very rough approx
 
-        # Generate embeddings with optional int8 quantization
-        # Using built-in precision parameter handles calibration internally
-        # This reduces embedding size by 75% with minimal accuracy loss (~99%)
+        # Generate embeddings - always use float32 first to ensure they work
         embeddings = model.encode(
             texts,
             batch_size=batch_size,
             convert_to_numpy=True,
-            show_progress_bar=False,
-            precision="int8" if use_quantization else "float32"
+            show_progress_bar=False
         )
+
+        # Debug: Log embedding stats
+        logger.info(f"Generated embeddings shape: {embeddings.shape}")
+        logger.info(f"Embedding dtype: {embeddings.dtype}")
+        logger.info(f"Sample values (first 5): {embeddings[0][:5].tolist()}")
+        logger.info(f"Min/Max: {embeddings.min():.4f} / {embeddings.max():.4f}")
+
+        # Apply quantization if enabled
+        # For now, skip quantization to test if base embeddings work
+        if use_quantization:
+            logger.warning("Quantization temporarily disabled for debugging")
+            # TODO: Re-enable once base embeddings confirmed working
 
         # Format response to match OpenAI API
         data = []
