@@ -71,21 +71,16 @@ async def lifespan(app: FastAPI):
     logger.info(f"Using device: {device}")
 
     # Load model with trust_remote_code=True for Qwen models
-    # Try to enable int8 quantization for 2x speed and 50% memory reduction
-    model_kwargs = {}
+    # Note: SentenceTransformer doesn't support load_in_8bit parameter
+    # Quantization would need to be done at a lower level or with different approach
     if use_quantization:
-        try:
-            model_kwargs = {"load_in_8bit": True, "device_map": "auto"}
-            logger.info("Attempting to load with int8 quantization...")
-        except Exception:
-            logger.warning("Quantization not supported, loading with default precision")
-            model_kwargs = {}
+        logger.warning("Quantization is configured but not yet supported with SentenceTransformer")
+        logger.warning("Model will load with default precision (fp16/fp32)")
 
     model = SentenceTransformer(
         model_name,
         device=device,
-        trust_remote_code=True,
-        model_kwargs=model_kwargs if model_kwargs else None
+        trust_remote_code=True
     )
 
     # Configure max sequence length (Qwen3-Embedding supports up to 32k)
