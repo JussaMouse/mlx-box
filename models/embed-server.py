@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 import uvicorn
 import torch
+import numpy as np
 from typing import List, Union, Optional
 from contextlib import asynccontextmanager
 import logging
@@ -137,7 +138,7 @@ async def create_embeddings(request: EmbeddingRequest):
         # Calculate tokens roughly for usage stats (approximation)
         prompt_tokens = sum(len(text.split()) for text in texts) # Very rough approx
 
-        # Generate embeddings - always use float32 first to ensure they work
+        # Generate embeddings in float32
         embeddings = model.encode(
             texts,
             batch_size=batch_size,
@@ -145,17 +146,23 @@ async def create_embeddings(request: EmbeddingRequest):
             show_progress_bar=False
         )
 
-        # Debug: Log embedding stats
-        logger.info(f"Generated embeddings shape: {embeddings.shape}")
-        logger.info(f"Embedding dtype: {embeddings.dtype}")
-        logger.info(f"Sample values (first 5): {embeddings[0][:5].tolist()}")
-        logger.info(f"Min/Max: {embeddings.min():.4f} / {embeddings.max():.4f}")
-
-        # Apply quantization if enabled
-        # For now, skip quantization to test if base embeddings work
+        # Apply manual int8 quantization if enabled
+        # Simple linear quantization: scale float range to int8 range [-128, 127]
         if use_quantization:
-            logger.warning("Quantization temporarily disabled for debugging")
-            # TODO: Re-enable once base embeddings confirmed working
+            # Find global min/max for quantization range
+            min_val = embeddings.min()
+            max_val = embeddings.max()
+
+            # Scale to int8 range [-128, 127]
+            # Formula: int8_value = (float_value - min) / (max - min) * 255 - 128
+            if max_val > min_val:  # Avoid division by zero
+                embeddings = ((embeddings - min_val) / (max_val - min_val) * 255 - 128).astype(np.int8)
+                logger.debug(f"Quantized to int8: min={min_val:.4f}, max={max_val:.4f}")
+            else:
+                logger.warning("Cannot quantize: min == max, keeping float32")
+        else:
+            # Keep as float32
+            embeddings = embeddings.astype(np.float32)
 
         # Format response to match OpenAI API
         data = []
