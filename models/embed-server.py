@@ -71,10 +71,17 @@ async def lifespan(app: FastAPI):
     logger.info(f"Using device: {device}")
 
     # Load model with trust_remote_code=True for Qwen models
+    # Force float32 to avoid BFloat16 issues on MPS
+    model_kwargs = {}
+    if device == "mps":
+        model_kwargs = {"torch_dtype": torch.float32}
+        logger.info("Using float32 dtype for MPS compatibility")
+
     model = SentenceTransformer(
         model_name,
         device=device,
-        trust_remote_code=True
+        trust_remote_code=True,
+        model_kwargs=model_kwargs
     )
 
     # Configure max sequence length (Qwen3-Embedding supports up to 32k)
