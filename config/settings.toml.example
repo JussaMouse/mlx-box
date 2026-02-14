@@ -47,10 +47,10 @@ api_keys = [
   max_tokens = 100
 
   # OPTIMIZATION: Model parameters for deterministic classification
-  temperature = 0.1         # Low temperature for consistent routing decisions
-  top_p = 0.9              # Nucleus sampling threshold
-  frequency_penalty = 0.0  # No penalty needed for short responses
-  presence_penalty = 0.0   # No penalty needed
+  temperature = 0.1         # ✓ ACTIVE: Low temperature for consistent routing decisions
+  top_p = 0.9              # ✓ ACTIVE: Nucleus sampling threshold
+  frequency_penalty = 0.0  # ✗ NOT USED: MLX server doesn't support repetition penalty
+  presence_penalty = 0.0   # ✗ NOT USED: MLX server doesn't support presence penalty
 
   # Tier 1 & 2: Fast Service
   # General purpose, low-latency model for most queries and simple tools
@@ -63,10 +63,10 @@ api_keys = [
   max_tokens = 8192    # INCREASED from 4096 - utilize available RAM
 
   # OPTIMIZATION: Model parameters for balanced conversation + tool use
-  temperature = 0.6         # Balanced creativity and coherence
-  top_p = 0.92             # Slightly higher for natural responses
-  frequency_penalty = 0.3  # Mild penalty for response variety
-  presence_penalty = 0.0   # Use frequency_penalty OR presence_penalty, not both
+  temperature = 0.6         # ✓ ACTIVE: Balanced creativity and coherence
+  top_p = 0.92             # ✓ ACTIVE: Slightly higher for natural responses
+  frequency_penalty = 0.3  # ✗ NOT USED: MLX server doesn't support repetition penalty
+  presence_penalty = 0.0   # ✗ NOT USED: MLX server doesn't support presence penalty
 
   # Tier 3: Thinking Service
   # High-reasoning model for complex tasks, coding, and planning
@@ -79,10 +79,10 @@ api_keys = [
   thinking_budget = 8192  # INCREASED from 4096 - more thinking tokens
 
   # OPTIMIZATION: Model parameters for precise reasoning
-  temperature = 0.2         # Low temperature for accuracy in reasoning/coding
-  top_p = 0.9              # Standard nucleus sampling
-  frequency_penalty = 0.0  # Reasoning models don't need penalty
-  presence_penalty = 0.0   # Not needed
+  temperature = 0.2         # ✓ ACTIVE: Low temperature for accuracy in reasoning/coding
+  top_p = 0.9              # ✓ ACTIVE: Standard nucleus sampling
+  frequency_penalty = 0.0  # ✗ NOT USED: MLX server doesn't support repetition penalty
+  presence_penalty = 0.0   # ✗ NOT USED: MLX server doesn't support presence penalty
 
   # --- Embedding Service ---
 
@@ -115,6 +115,14 @@ api_keys = [
   port = 8000
 
 # --- OPTIMIZATION NOTES ---
+#
+# PARAMETER STATUS:
+#   ✓ ACTIVE: temperature, top_p, max_tokens, thinking_budget
+#   ✗ NOT USED: frequency_penalty, presence_penalty
+#
+# The patched_mlx_server.py currently only supports --temp and --top-p.
+# Frequency and presence penalties are stored in config for future use
+# but are not currently passed to the MLX server.
 #
 # Temperature Guidelines:
 #   0.0-0.2: Deterministic, factual, precise (router, thinking for code/math)
