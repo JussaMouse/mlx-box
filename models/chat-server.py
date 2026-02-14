@@ -107,11 +107,8 @@ def main():
     print()
     
     # Build command for mlx_lm.server
-    cmd = [sys.executable, "-m", "mlx_lm.server"]
-    
-    # Use patched server for Fast/Thinking tiers to enable KV cache quantization
-    if service_name in ["fast", "thinking"]:
-        cmd = [sys.executable, "patched_mlx_server.py"]
+    # Use patched server without uvloop for OpenAI SDK compatibility
+    cmd = [sys.executable, "patched_mlx_server_no_uvloop.py"]
 
     cmd.extend([
         "--model", model_name,

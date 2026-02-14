@@ -155,11 +155,13 @@ def main():
     # Create and run proxy
     app = create_auth_proxy(args.backend_port, api_key, api_keys)
 
+    # Disable uvloop for OpenAI SDK compatibility
     uvicorn.run(
         app,
         host=host,
         port=args.frontend_port,
         log_level="info",
+        loop="asyncio",
     )
 
 

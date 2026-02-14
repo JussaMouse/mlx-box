@@ -217,4 +217,5 @@ if __name__ == "__main__":
     if not model_name:
         logger.error("Embedding model name not configured. Exiting.")
     else:
-        uvicorn.run(app, host=host, port=port)
+        # Disable uvloop for OpenAI SDK compatibility
+        uvicorn.run(app, host=host, port=port, loop="asyncio")

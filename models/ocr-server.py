@@ -231,7 +231,8 @@ def main():
     if not MODEL_ID:
         logger.error("OCR model name not configured. Exiting.")
         raise SystemExit(1)
-    uvicorn.run(app, host=HOST, port=PORT)
+    # Disable uvloop for OpenAI SDK compatibility
+    uvicorn.run(app, host=HOST, port=PORT, loop="asyncio")
 
 
 if __name__ == "__main__":
