@@ -81,9 +81,15 @@ def main():
     # Use backend_port if available (for auth proxy setup), otherwise use port
     port = service_config.get("backend_port") or service_config.get("port", 8080)
     max_tokens = service_config.get("max_tokens", 4096)
-    
+
+    # NEW: Model parameters for generation quality
+    temperature = service_config.get("temperature")  # Default None (server decides)
+    top_p = service_config.get("top_p")
+    frequency_penalty = service_config.get("frequency_penalty")
+    presence_penalty = service_config.get("presence_penalty")
+
     # Special config for thinking model (not used by CLI directly but good to track)
-    # thinking_budget = service_config.get("thinking_budget") 
+    thinking_budget = service_config.get("thinking_budget") 
 
     if not model_name:
         print(f"❌ Model name not specified for '{service_name}' in config.")
@@ -113,6 +119,17 @@ def main():
         "--host", host,
         "--max-tokens", str(max_tokens)
     ])
+
+    # Add optional generation parameters if specified in config
+    if temperature is not None:
+        cmd.extend(["--temp", str(temperature)])
+    if top_p is not None:
+        cmd.extend(["--top-p", str(top_p)])
+    if frequency_penalty is not None:
+        cmd.extend(["--repetition-penalty", str(1.0 + frequency_penalty)])  # MLX uses repetition penalty
+
+    # Note: presence_penalty not directly supported by mlx_lm.server
+    # It would need to be handled at the application level
     
     # Add kv-cache-quant for larger models to save RAM
     # Apply to fast and thinking models (typically 30B+)
