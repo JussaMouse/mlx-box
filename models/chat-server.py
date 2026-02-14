@@ -125,11 +125,9 @@ def main():
         cmd.extend(["--temp", str(temperature)])
     if top_p is not None:
         cmd.extend(["--top-p", str(top_p)])
-    if frequency_penalty is not None:
-        cmd.extend(["--repetition-penalty", str(1.0 + frequency_penalty)])  # MLX uses repetition penalty
 
-    # Note: presence_penalty not directly supported by mlx_lm.server
-    # It would need to be handled at the application level
+    # Note: repetition_penalty and presence_penalty not supported by patched_mlx_server.py
+    # These would need to be handled at the application level or added to the patched server
     
     # Add kv-cache-quant for larger models to save RAM
     # Apply to fast and thinking models (typically 30B+)

@@ -203,6 +203,59 @@ This file is used by the Python-based AI services (`chat-server.py`, `embed-serv
 -   `[services.thinking]`: Configuration for the advanced reasoning model (default: Qwen3-30B-A3B-Thinking).
 -   `[services.embedding]`: Configuration for the embedding model.
 
+### Chat Service Generation Parameters
+
+Chat services (router, fast, thinking) support fine-tuned generation parameters for optimal quality and consistency:
+
+**Configuration Options** (`config/settings.toml`):
+
+```toml
+[services.router]
+port = 8080
+backend_port = 8090
+model = "mlx-community/Qwen3-0.6B-4bit"
+max_tokens = 100
+temperature = 0.1      # Low temp for deterministic classification
+top_p = 0.9
+frequency_penalty = 0.0
+presence_penalty = 0.0
+
+[services.fast]
+port = 8081
+backend_port = 8091
+model = "mlx-community/Qwen3-30B-A3B-4bit"
+max_tokens = 8192      # 2x increased for longer contexts
+temperature = 0.6      # Balanced creativity
+top_p = 0.92
+frequency_penalty = 0.3
+
+[services.thinking]
+port = 8083
+backend_port = 8093
+model = "mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit"
+max_tokens = 16384         # 2x increased for complex reasoning
+thinking_budget = 8192     # 2x increased thinking tokens
+temperature = 0.2          # Low temp for precise reasoning
+top_p = 0.9
+frequency_penalty = 0.0
+```
+
+**Parameter Guide:**
+
+- `temperature`: Controls randomness (0.0 = deterministic, 1.0 = creative)
+  - Router (0.1): Consistent classification
+  - Fast (0.6): Balanced responses
+  - Thinking (0.2): Precise reasoning
+- `top_p`: Nucleus sampling threshold (0.9-0.95 recommended)
+- `frequency_penalty`: Reduces word repetition (0.0-1.0, currently not supported by MLX server)
+- `presence_penalty`: Encourages topic diversity (0.0-1.0, currently not supported by MLX server)
+- `max_tokens`: Maximum context window
+  - Fast: 8192 tokens (2x baseline)
+  - Thinking: 16384 tokens (2x baseline)
+- `thinking_budget`: Additional tokens for chain-of-thought reasoning (thinking tier only)
+
+**Note:** The MLX server currently supports `temperature` and `top_p` parameters. The `frequency_penalty` and `presence_penalty` parameters are stored in config but not yet passed to the server.
+
 ### Embedding Service Configuration
 
 The embedding service (`embed-server.py`) provides high-quality semantic embeddings for document search and similarity tasks. It's optimized for Qwen3-Embedding models with several key features:
