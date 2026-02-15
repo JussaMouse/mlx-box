@@ -124,15 +124,18 @@ def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys
                                         # Method 2: Strip <think>...</think> tags from content (legacy format)
                                         if isinstance(message, dict) and "content" in message:
                                             content = message["content"]
-                                            if isinstance(content, str):
+                                            if isinstance(content, str) and "<think>" in content:
                                                 # Remove everything from <think> to </think>
                                                 import re
-                                                message["content"] = re.sub(
+                                                print(f"DEBUG: Filtering <think> tags from content (length: {len(content)})")
+                                                filtered_content = re.sub(
                                                     r'<think>.*?</think>\s*',
                                                     '',
                                                     content,
                                                     flags=re.DOTALL
                                                 ).strip()
+                                                print(f"DEBUG: After filtering (length: {len(filtered_content)})")
+                                                message["content"] = filtered_content
 
                         # Don't pass Content-Length header - let FastAPI recalculate it
                         response_headers = dict(response.headers)
