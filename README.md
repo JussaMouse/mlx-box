@@ -203,6 +203,39 @@ This file is used by the Python-based AI services (`chat-server.py`, `embed-serv
 -   `[services.thinking]`: Configuration for the advanced reasoning model (default: Qwen3-30B-A3B-Thinking).
 -   `[services.embedding]`: Configuration for the embedding model.
 
+### Reasoning Filter (Hide Thinking Content)
+
+Both Fast and Thinking services support **reasoning filter** to hide thinking/reasoning content from clients while maintaining quality.
+
+**How it works:**
+- Models generate reasoning internally (improves answer quality)
+- Auth proxy strips reasoning before sending to client
+- Clients receive clean responses without thinking clutter
+
+**Filter methods:**
+- **Fast service**: Strips `<think>...</think>` tags from content (legacy format)
+- **Thinking service**: Strips `reasoning` field from message (modern format)
+
+**Configuration** (`config/settings.toml`):
+
+```toml
+[services.fast]
+filter_reasoning = true  # Strip <think> tags from responses
+
+[services.thinking]
+filter_reasoning = true  # Strip reasoning field from responses
+```
+
+**Benefits:**
+- ✅ Better quality (model still reasons internally)
+- ✅ Clean responses (no reasoning clutter for clients)
+- ✅ Bandwidth savings (reasoning can be 2-10x longer than answers)
+- ✅ Handles incomplete tags (when max_tokens cuts off response)
+
+See `docs/REASONING-FILTER-GUIDE.md` for detailed documentation.
+
+---
+
 ### Chat Service Generation Parameters
 
 Chat services (router, fast, thinking) support fine-tuned generation parameters for optimal quality and consistency:
@@ -255,6 +288,8 @@ frequency_penalty = 0.0
 - `thinking_budget`: Additional tokens for chain-of-thought reasoning (thinking tier only)
 
 **Note:** The MLX server currently supports `temperature` and `top_p` parameters. The `frequency_penalty` and `presence_penalty` parameters are stored in config but not yet passed to the server.
+
+**Reasoning Filter:** Set `filter_reasoning = true` to hide thinking/reasoning content while maintaining quality. See section above for details.
 
 ### Embedding Service Configuration
 
