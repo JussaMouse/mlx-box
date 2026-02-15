@@ -187,6 +187,9 @@ def main():
     service_config = config.get("services", {}).get(args.service, {})
     filter_reasoning = service_config.get("filter_reasoning", False)
 
+    # DEBUG: Print what we're reading
+    print(f"DEBUG: Service '{args.service}' config filter_reasoning = {filter_reasoning} (type: {type(filter_reasoning)})")
+
     # Count total valid keys
     total_keys = 0
     if api_key:
@@ -201,6 +204,8 @@ def main():
 
     if filter_reasoning:
         print(f"🧠 Reasoning filter enabled - 'reasoning' field will be stripped from responses")
+    else:
+        print(f"DEBUG: Reasoning filter NOT enabled (filter_reasoning={filter_reasoning})")
 
     print(f"🚀 Starting auth proxy for {args.service.upper()} service")
     print(f"📍 Frontend: http://{host}:{args.frontend_port}")
