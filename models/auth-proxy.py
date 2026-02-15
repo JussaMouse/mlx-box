@@ -30,8 +30,15 @@ def load_config():
         sys.exit(1)
 
 
-def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys: Optional[list] = None):
-    """Create FastAPI app that proxies requests with authentication."""
+def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys: Optional[list] = None, filter_reasoning: bool = False):
+    """Create FastAPI app that proxies requests with authentication.
+
+    Args:
+        backend_port: Port of the backend MLX service
+        api_key: Single API key (legacy)
+        api_keys: List of API keys (recommended)
+        filter_reasoning: If True, strip 'reasoning' field from responses (Qwen3-Thinking models)
+    """
     app = FastAPI(title="MLX Auth Proxy")
     backend_url = f"http://127.0.0.1:{backend_port}"
 
@@ -100,11 +107,30 @@ def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys
                     )
                 else:
                     # Return regular response
-                    return JSONResponse(
-                        content=response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text,
-                        status_code=response.status_code,
-                        headers=dict(response.headers),
-                    )
+                    if response.headers.get("content-type", "").startswith("application/json"):
+                        response_data = response.json()
+
+                        # Filter reasoning field if configured (for Qwen3-Thinking models)
+                        if filter_reasoning and isinstance(response_data, dict):
+                            if "choices" in response_data:
+                                for choice in response_data["choices"]:
+                                    if isinstance(choice, dict) and "message" in choice:
+                                        message = choice["message"]
+                                        if isinstance(message, dict) and "reasoning" in message:
+                                            # Remove reasoning field to hide thinking process
+                                            del message["reasoning"]
+
+                        return JSONResponse(
+                            content=response_data,
+                            status_code=response.status_code,
+                            headers=dict(response.headers),
+                        )
+                    else:
+                        return JSONResponse(
+                            content=response.text,
+                            status_code=response.status_code,
+                            headers=dict(response.headers),
+                        )
 
             except httpx.RequestError as e:
                 raise HTTPException(
@@ -135,6 +161,10 @@ def main():
     api_key = server_config.get("api_key")  # Old single key format
     api_keys = server_config.get("api_keys")  # New multiple keys format
 
+    # Check if this service should filter reasoning field
+    service_config = config.get("services", {}).get(args.service, {})
+    filter_reasoning = service_config.get("filter_reasoning", False)
+
     # Count total valid keys
     total_keys = 0
     if api_key:
@@ -147,13 +177,16 @@ def main():
     else:
         print(f"⚠️  WARNING: No API key configured - running without authentication")
 
+    if filter_reasoning:
+        print(f"🧠 Reasoning filter enabled - 'reasoning' field will be stripped from responses")
+
     print(f"🚀 Starting auth proxy for {args.service.upper()} service")
     print(f"📍 Frontend: http://{host}:{args.frontend_port}")
     print(f"🔗 Backend: http://{host}:{args.backend_port}")
     print()
 
     # Create and run proxy
-    app = create_auth_proxy(args.backend_port, api_key, api_keys)
+    app = create_auth_proxy(args.backend_port, api_key, api_keys, filter_reasoning)
 
     # Disable uvloop for OpenAI SDK compatibility
     uvicorn.run(

@@ -44,7 +44,7 @@ api_keys = [
   port = 8082          # Frontend port (with auth)
   backend_port = 8092  # Backend MLX server port (no auth)
   model = "mlx-community/Qwen3-0.6B-4bit"
-  max_tokens = 100
+  max_tokens = 150     # OPTIMIZED: Increased from 100 for more detailed routing decisions
 
   # OPTIMIZATION: Model parameters for deterministic classification
   temperature = 0.1         # ✓ ACTIVE: Low temperature for consistent routing decisions
@@ -60,13 +60,16 @@ api_keys = [
   port = 8080          # Frontend port (with auth)
   backend_port = 8090  # Backend MLX server port (no auth)
   model = "mlx-community/Qwen3-30B-A3B-4bit"
-  max_tokens = 8192    # INCREASED from 4096 - utilize available RAM
+  max_tokens = 16384   # OPTIMIZED: 2x increase from 8192 (128GB RAM has plenty of headroom)
 
   # OPTIMIZATION: Model parameters for balanced conversation + tool use
   temperature = 0.6         # ✓ ACTIVE: Balanced creativity and coherence
   top_p = 0.92             # ✓ ACTIVE: Slightly higher for natural responses
   frequency_penalty = 0.3  # ✗ NOT USED: MLX server doesn't support repetition penalty
   presence_penalty = 0.0   # ✗ NOT USED: MLX server doesn't support presence penalty
+
+  # Filter thinking tags (optional - Qwen3-30B-A3B base model supports both modes)
+  # disable_thinking_tags = true  # Uncomment to hide reasoning if model outputs <think> tags
 
   # Tier 3: Thinking Service
   # High-reasoning model for complex tasks, coding, and planning
@@ -75,14 +78,29 @@ api_keys = [
   port = 8081          # Frontend port (with auth)
   backend_port = 8091  # Backend MLX server port (no auth)
   model = "mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit"
-  max_tokens = 16384   # INCREASED from 8192 - longer reasoning contexts
-  thinking_budget = 8192  # INCREASED from 4096 - more thinking tokens
+  max_tokens = 32768       # OPTIMIZED: Maximum 32K context (128GB RAM can handle it)
+  thinking_budget = 16384  # OPTIMIZED: 2x increase from 8192 for complex reasoning chains
 
   # OPTIMIZATION: Model parameters for precise reasoning
-  temperature = 0.2         # ✓ ACTIVE: Low temperature for accuracy in reasoning/coding
-  top_p = 0.9              # ✓ ACTIVE: Standard nucleus sampling
+  # Official Qwen3-Thinking-2507 recommendations from model card
+  temperature = 0.6         # ✓ ACTIVE: Optimal for reasoning exploration (was 0.2)
+  top_p = 0.95             # ✓ ACTIVE: Allows diverse reasoning paths (was 0.9)
   frequency_penalty = 0.0  # ✗ NOT USED: MLX server doesn't support repetition penalty
   presence_penalty = 0.0   # ✗ NOT USED: MLX server doesn't support presence penalty
+
+  # === REASONING FILTERING OPTIONS ===
+  #
+  # Option 1: Filter reasoning at proxy level (RECOMMENDED)
+  # - Model STILL generates reasoning (improves quality)
+  # - Auth proxy strips 'reasoning' field before sending to client
+  # - Cleaner than prompt-level filtering, no behavior change
+  filter_reasoning = true   # ✓ RECOMMENDED: Strip reasoning field from responses
+  #
+  # Option 2: Disable reasoning generation at model level
+  # - Changes the PROMPT to instruct model not to generate thinking
+  # - May reduce response quality (no reasoning to guide answers)
+  # - Qwen3-Thinking-2507 may ignore this (model fine-tuned for thinking)
+  # disable_thinking_tags = true  # Alternative: Requires mlx-lm >= 0.30.6
 
   # --- Embedding Service ---
 
@@ -93,8 +111,8 @@ api_keys = [
   backend_port = 8093  # Backend service port (no auth)
   # The SentenceTransformer model to use for embeddings.
   model = "Qwen/Qwen3-Embedding-8B"
-  batch_size = 64      # Process 64 texts at once for efficiency
-  max_seq_length = 1024  # Max tokens per text (Qwen supports up to 32K)
+  batch_size = 128     # OPTIMIZED: 2x increase from 64 (128GB RAM allows faster bulk embedding)
+  max_seq_length = 2048  # OPTIMIZED: 2x increase from 1024 for better long document understanding
   quantization = true  # Use int8 for 2x speed and 50% memory reduction
 
   # --- OCR (Vision Chat) Service ---

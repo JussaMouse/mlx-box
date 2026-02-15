@@ -125,7 +125,13 @@ def main():
 
     # Note: repetition_penalty and presence_penalty not supported by patched_mlx_server.py
     # These would need to be handled at the application level or added to the patched server
-    
+
+    # Add chat template arguments for thinking models (requires mlx-lm >= 0.30.6)
+    disable_thinking = service_config.get("disable_thinking_tags", False)
+    if disable_thinking:
+        cmd.extend(["--chat-template-args", '{"enable_thinking":false}'])
+        print(f"🧠 Thinking tags disabled for {service_name} service")
+
     # Add kv-cache-quant for larger models to save RAM
     # Apply to fast and thinking models (typically 30B+)
     # Note: Disabled again as it causes errors on server startup even with latest deps
