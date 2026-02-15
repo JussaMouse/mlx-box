@@ -144,10 +144,14 @@ def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys
                             headers=response_headers,
                         )
                     else:
+                        # Also remove Content-Length for non-JSON responses
+                        response_headers = dict(response.headers)
+                        response_headers.pop("content-length", None)
+
                         return JSONResponse(
                             content=response.text,
                             status_code=response.status_code,
-                            headers=dict(response.headers),
+                            headers=response_headers,
                         )
 
             except httpx.RequestError as e:
