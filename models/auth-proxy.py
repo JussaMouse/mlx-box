@@ -125,15 +125,25 @@ def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys
                                         if isinstance(message, dict) and "content" in message:
                                             content = message["content"]
                                             if isinstance(content, str) and "<think>" in content:
-                                                # Remove everything from <think> to </think>
                                                 import re
                                                 print(f"DEBUG: Filtering <think> tags from content (length: {len(content)})")
+
+                                                # Remove complete <think>...</think> blocks
                                                 filtered_content = re.sub(
                                                     r'<think>.*?</think>\s*',
                                                     '',
                                                     content,
                                                     flags=re.DOTALL
+                                                )
+
+                                                # Also remove incomplete <think> blocks (when response cuts off before </think>)
+                                                filtered_content = re.sub(
+                                                    r'<think>.*',
+                                                    '',
+                                                    filtered_content,
+                                                    flags=re.DOTALL
                                                 ).strip()
+
                                                 print(f"DEBUG: After filtering (length: {len(filtered_content)})")
                                                 message["content"] = filtered_content
 
