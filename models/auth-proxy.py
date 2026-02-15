@@ -134,10 +134,14 @@ def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys
                                                     flags=re.DOTALL
                                                 ).strip()
 
+                        # Don't pass Content-Length header - let FastAPI recalculate it
+                        response_headers = dict(response.headers)
+                        response_headers.pop("content-length", None)
+
                         return JSONResponse(
                             content=response_data,
                             status_code=response.status_code,
-                            headers=dict(response.headers),
+                            headers=response_headers,
                         )
                     else:
                         return JSONResponse(
