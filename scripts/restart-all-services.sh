@@ -15,8 +15,9 @@ echo -e "${BLUE}║           Restarting All MLX-Box Services                  �
 echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# List of all services
+# List of all services (backend + frontend pairs)
 SERVICES=(
+    "com.mlx-box.router-backend"
     "com.mlx-box.router"
     "com.mlx-box.fast-backend"
     "com.mlx-box.fast"
