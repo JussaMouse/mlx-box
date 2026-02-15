@@ -68,8 +68,9 @@ api_keys = [
   frequency_penalty = 0.3  # ✗ NOT USED: MLX server doesn't support repetition penalty
   presence_penalty = 0.0   # ✗ NOT USED: MLX server doesn't support presence penalty
 
-  # Filter thinking tags (optional - Qwen3-30B-A3B base model supports both modes)
-  # disable_thinking_tags = true  # Uncomment to hide reasoning if model outputs <think> tags
+  # Filter thinking tags/reasoning (recommended for clean responses)
+  # Qwen3-30B-A3B uses legacy <think>...</think> tags in content field
+  filter_reasoning = true   # ✓ RECOMMENDED: Strip <think> tags from responses
 
   # Tier 3: Thinking Service
   # High-reasoning model for complex tasks, coding, and planning

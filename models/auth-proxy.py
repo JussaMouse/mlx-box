@@ -110,15 +110,29 @@ def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys
                     if response.headers.get("content-type", "").startswith("application/json"):
                         response_data = response.json()
 
-                        # Filter reasoning field if configured (for Qwen3-Thinking models)
+                        # Filter reasoning if configured
                         if filter_reasoning and isinstance(response_data, dict):
                             if "choices" in response_data:
                                 for choice in response_data["choices"]:
                                     if isinstance(choice, dict) and "message" in choice:
                                         message = choice["message"]
+
+                                        # Method 1: Remove separate reasoning field (Qwen3-Thinking-2507 format)
                                         if isinstance(message, dict) and "reasoning" in message:
-                                            # Remove reasoning field to hide thinking process
                                             del message["reasoning"]
+
+                                        # Method 2: Strip <think>...</think> tags from content (legacy format)
+                                        if isinstance(message, dict) and "content" in message:
+                                            content = message["content"]
+                                            if isinstance(content, str):
+                                                # Remove everything from <think> to </think>
+                                                import re
+                                                message["content"] = re.sub(
+                                                    r'<think>.*?</think>\s*',
+                                                    '',
+                                                    content,
+                                                    flags=re.DOTALL
+                                                ).strip()
 
                         return JSONResponse(
                             content=response_data,
