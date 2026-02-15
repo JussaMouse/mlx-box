@@ -126,7 +126,6 @@ def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys
                                             content = message["content"]
                                             if isinstance(content, str) and "<think>" in content:
                                                 import re
-                                                print(f"DEBUG: Filtering <think> tags from content (length: {len(content)})")
 
                                                 # Remove complete <think>...</think> blocks
                                                 filtered_content = re.sub(
@@ -144,7 +143,6 @@ def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys
                                                     flags=re.DOTALL
                                                 ).strip()
 
-                                                print(f"DEBUG: After filtering (length: {len(filtered_content)})")
                                                 message["content"] = filtered_content
 
                         # Don't pass Content-Length header - let FastAPI recalculate it
@@ -200,9 +198,6 @@ def main():
     service_config = config.get("services", {}).get(args.service, {})
     filter_reasoning = service_config.get("filter_reasoning", False)
 
-    # DEBUG: Print what we're reading
-    print(f"DEBUG: Service '{args.service}' config filter_reasoning = {filter_reasoning} (type: {type(filter_reasoning)})")
-
     # Count total valid keys
     total_keys = 0
     if api_key:
@@ -217,8 +212,6 @@ def main():
 
     if filter_reasoning:
         print(f"🧠 Reasoning filter enabled - 'reasoning' field will be stripped from responses")
-    else:
-        print(f"DEBUG: Reasoning filter NOT enabled (filter_reasoning={filter_reasoning})")
 
     print(f"🚀 Starting auth proxy for {args.service.upper()} service")
     print(f"📍 Frontend: http://{host}:{args.frontend_port}")
