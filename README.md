@@ -111,9 +111,9 @@ Restart all services:
 scripts/restart-all-services.sh
 ```
 
-Update a model:
+Update models by editing `config/settings.toml` and re-running the installer:
 ```sh
-./update-model.sh fast mlx-community/Qwen3.5-35B-A3B-4bit
+./install.sh
 ```
 
 Validate config:
