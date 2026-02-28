@@ -25,7 +25,7 @@ if [ -z "$API_KEY" ]; then
 fi
 
 # Extract ports from config
-read -r ROUTER_PORT FAST_PORT THINKING_PORT EMBEDDING_PORT < <(
+read -r ROUTER_PORT FAST_PORT THINKING_PORT EMBEDDING_PORT TTS_PORT WHISPER_PORT TTS_VOICE < <(
 python3 - <<'PY'
 import tomllib
 from pathlib import Path
@@ -36,14 +36,23 @@ services = cfg.get("services", {})
 def port(name, default):
     return services.get(name, {}).get("port", default)
 
+tts_voice = services.get("tts", {}).get("default_voice", "")
+
 print(
     port("router", 8080),
     port("fast", 8081),
     port("thinking", 8083),
     port("embedding", 8084),
+    port("tts", 8086),
+    port("whisper", 8087),
+    tts_voice,
 )
 PY
 )
+
+if [ -z "$TTS_VOICE" ]; then
+    TTS_VOICE="serena"
+fi
 
 echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║         MLX Service Benchmark - Performance Test          ║${NC}"
@@ -126,6 +135,8 @@ get_model_id() {
 ROUTER_MODEL=$(get_model_id "$ROUTER_PORT" "router")
 FAST_MODEL=$(get_model_id "$FAST_PORT" "fast")
 THINKING_MODEL=$(get_model_id "$THINKING_PORT" "thinking")
+TTS_MODEL=$(get_model_id "$TTS_PORT" "tts")
+WHISPER_MODEL=$(get_model_id "$WHISPER_PORT" "small.en")
 
 # Initialize results file
 rm -f /tmp/mlx_benchmark_results.txt
@@ -179,6 +190,71 @@ else
     echo ""
 fi
 
+# Optional: TTS
+echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
+echo -e "${BLUE}5. TTS Service${NC}"
+echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
+
+TTS_OUT="/tmp/mlx_benchmark_tts.wav"
+HTTP_CODE=$(curl -s -o "$TTS_OUT" -w "%{http_code}" -X POST "http://127.0.0.1:${TTS_PORT}/v1/audio/speech" \
+    -H "Authorization: Bearer ${API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+        \"model\": \"${TTS_MODEL}\",
+        \"input\": \"Benchmarking TTS output.\",
+        \"voice\": \"${TTS_VOICE}\"
+    }")
+
+if [ "$HTTP_CODE" -eq 200 ] && [ -s "$TTS_OUT" ]; then
+    size=$(wc -c < "$TTS_OUT" | tr -d ' ')
+    echo -e "${GREEN}  ✓ Success${NC}"
+    echo "  Audio size: ${size} bytes"
+else
+    echo -e "${YELLOW}⚠ TTS request failed (HTTP ${HTTP_CODE})${NC}"
+    [ -f "$TTS_OUT" ] && head -c 200 "$TTS_OUT"
+fi
+echo ""
+
+# Optional: Whisper
+echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
+echo -e "${BLUE}6. Whisper Service${NC}"
+echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
+
+WHISPER_WAV="/tmp/mlx_benchmark_whisper.wav"
+python3 - <<'PY'
+import math
+import wave
+import struct
+
+sample_rate = 16000
+duration_sec = 1.0
+freq = 440.0
+
+num_samples = int(sample_rate * duration_sec)
+with wave.open("/tmp/mlx_benchmark_whisper.wav", "w") as wf:
+    wf.setnchannels(1)
+    wf.setsampwidth(2)
+    wf.setframerate(sample_rate)
+    for i in range(num_samples):
+        val = int(32767.0 * math.sin(2 * math.pi * freq * (i / sample_rate)))
+        wf.writeframes(struct.pack("<h", val))
+PY
+
+whisper_response=$(curl -s "http://127.0.0.1:${WHISPER_PORT}/v1/audio/transcriptions" \
+    -H "Authorization: Bearer ${API_KEY}" \
+    -F "file=@${WHISPER_WAV}" \
+    -F "model=${WHISPER_MODEL}")
+
+whisper_text=$(echo "$whisper_response" | jq -r '.text' 2>/dev/null)
+if [ "$whisper_text" != "null" ] && [ -n "$whisper_text" ]; then
+    echo -e "${GREEN}  ✓ Success${NC}"
+    echo "  Text: ${whisper_text}"
+else
+    echo -e "${YELLOW}⚠ Whisper response missing text${NC}"
+    echo "$whisper_response" | head -c 200
+fi
+echo ""
+
 # Summary
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}                    SUMMARY                                ${NC}"
@@ -202,8 +278,8 @@ echo -e "${BLUE}═════════════════════�
 echo -e "${BLUE}                 Memory Usage                              ${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 
-# Get total Python MLX process memory
-total_mem=$(ps aux | grep -E 'python.*mlx|python.*embed|python.*ocr' | grep -v grep | awk '{sum+=$6} END {printf "%.2f", sum/1024/1024}')
+# Get total Python MLX process memory (including voice services)
+total_mem=$(ps aux | grep -E 'python.*chat-server.py|python.*embed-server.py|python.*ocr-server.py|python.*voice/tts-server.py|python.*voice/whisper-server.py' | grep -v grep | awk '{sum+=$6} END {printf "%.2f", sum/1024/1024}')
 echo "MLX Services: ${total_mem} GB"
 
 # Check swap

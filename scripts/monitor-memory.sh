@@ -12,7 +12,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║           MLX Service Memory Monitor (128GB RAM)           ║${NC}"
+echo -e "${BLUE}║               MLX Service Memory Monitor                  ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -61,7 +61,7 @@ get_memory_stats() {
     local used_gb=$(echo "scale=2; $total_gb * (100 - $free_percentage) / 100" | bc)
     local free_gb=$(echo "scale=2; $total_gb * $free_percentage / 100" | bc)
 
-    echo -e "${BLUE}System Memory (128GB total):${NC}"
+    echo -e "${BLUE}System Memory (total: ${total_gb} GB):${NC}"
     printf "  Total:    %.2f GB\n" "$total_gb"
     printf "  Used:     %.2f GB (%.0f%%)\n" "$used_gb" "$(echo "100 - $free_percentage" | bc)"
     printf "  Free:     %.2f GB (%.0f%%)\n" "$free_gb" "$free_percentage"

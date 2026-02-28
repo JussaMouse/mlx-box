@@ -16,13 +16,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="$PROJECT_DIR/config/settings.toml"
 
-API_KEY=$(grep -A 5 'api_keys = \[' "$CONFIG_FILE" | grep '"' | head -1 | cut -d'"' -f2)
-THINKING_PORT=$(python3 - <<'PY'
+read -r API_KEY THINKING_PORT < <(
+python3 - <<'PY'
 import tomllib
 from pathlib import Path
+
 cfg = tomllib.loads(Path("config/settings.toml").read_text())
 services = cfg.get("services", {})
-print(services.get("thinking", {}).get("port", 8083))
+server = cfg.get("server", {})
+api_keys = server.get("api_keys", [])
+api_key = api_keys[0] if api_keys else server.get("api_key", "")
+thinking_port = services.get("thinking", {}).get("port", 8083)
+print(api_key, thinking_port)
 PY
 )
 THINKING_MODEL=$(curl -s "http://127.0.0.1:${THINKING_PORT}/v1/models" -H "Authorization: Bearer ${API_KEY}" | jq -r '.data[0].id // "thinking"')

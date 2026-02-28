@@ -67,6 +67,40 @@ else
     ((ISSUES++))
 fi
 
+# Read ports from config (fallback to defaults)
+if [ -f "$CONFIG_FILE" ]; then
+    read -r ROUTER_PORT FAST_PORT THINKING_PORT EMBEDDING_PORT OCR_PORT TTS_PORT WHISPER_PORT < <(
+        python3 - <<'PY'
+import tomllib
+from pathlib import Path
+
+cfg = tomllib.loads(Path("config/settings.toml").read_text())
+services = cfg.get("services", {})
+
+def port(name, default):
+    return services.get(name, {}).get("port", default)
+
+print(
+    port("router", 8080),
+    port("fast", 8081),
+    port("thinking", 8083),
+    port("embedding", 8084),
+    port("ocr", 8085),
+    port("tts", 8086),
+    port("whisper", 8087),
+)
+PY
+    )
+else
+    ROUTER_PORT=8080
+    FAST_PORT=8081
+    THINKING_PORT=8083
+    EMBEDDING_PORT=8084
+    OCR_PORT=8085
+    TTS_PORT=8086
+    WHISPER_PORT=8087
+fi
+
 # Check for example file not renamed
 if [ ! -f "$CONFIG_FILE" ] && [ -f "config/settings.toml.example" ]; then
     echo -e "$WARN Using example config - copy to settings.toml and customize"
@@ -99,7 +133,7 @@ echo "3. MLX Services Status"
 echo "----------------------"
 
 # Check if services are running
-for service in router fast thinking embedding ocr; do
+for service in router fast thinking embedding ocr tts whisper; do
     if launchctl list | grep -q "com.mlx-box.$service\$"; then
         echo -e "$PASS ${service} service: running"
     else
@@ -115,7 +149,7 @@ echo "--------------------"
 
 LOG_DIR="$HOME/Library/Logs"
 if [ -d "$LOG_DIR" ]; then
-    LOG_FILES=$(find "$LOG_DIR" -name "com.mlx-box.*.log" 2>/dev/null | wc -l | tr -d ' ')
+    LOG_FILES=$(find "$LOG_DIR" -path "$LOG_DIR/com.mlx-box.*/*.log" 2>/dev/null | wc -l | tr -d ' ')
     if [ "$LOG_FILES" -gt 0 ]; then
         echo -e "$INFO Found $LOG_FILES MLX service log files"
 
@@ -130,12 +164,12 @@ if [ -d "$LOG_DIR" ]; then
                 echo "   $(basename "$logfile"): $PERMS"
                 ((INSECURE_LOGS++))
             fi
-        done < <(find "$LOG_DIR" -name "com.mlx-box.*.log" 2>/dev/null)
+        done < <(find "$LOG_DIR" -path "$LOG_DIR/com.mlx-box.*/*.log" 2>/dev/null)
 
         if [ $INSECURE_LOGS -eq 0 ]; then
             echo -e "$PASS All log files have secure permissions"
         else
-            echo "   Fix: chmod 600 $LOG_DIR/com.mlx-box.*.log"
+            echo "   Fix: chmod 600 $LOG_DIR/com.mlx-box.*/*.log"
             ((WARNINGS++))
         fi
     else
@@ -227,7 +261,7 @@ echo "----------------------"
 echo "Checking if MLX services are exposed..."
 EXPOSED=0
 
-for port in 8080 8081 8082 8083 8084 8085; do
+for port in "$ROUTER_PORT" "$FAST_PORT" "$THINKING_PORT" "$EMBEDDING_PORT" "$OCR_PORT" "$TTS_PORT" "$WHISPER_PORT"; do
     if command -v lsof >/dev/null 2>&1; then
         # Check for listeners NOT on localhost (exclude 127.0.0.1 and ::1)
         LISTENER=$(lsof -i ":$port" -sTCP:LISTEN -P -n 2>/dev/null | grep -v "127.0.0.1" | grep -v "\[::1\]" | grep -v "COMMAND" || true)
@@ -266,7 +300,7 @@ echo ""
 echo "Quick Fix Commands:"
 echo "-------------------"
 echo "chmod 600 config/settings.toml"
-echo "chmod 600 ~/Library/Logs/com.mlx-box.*.log"
+echo "chmod 600 ~/Library/Logs/com.mlx-box.*/*.log"
 echo ""
 echo "For secure deployment, ensure:"
 echo "  • host = \"127.0.0.1\" in settings.toml"

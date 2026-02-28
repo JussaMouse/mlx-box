@@ -12,18 +12,23 @@ mkdir -p "${REPORT_DIR}"
 BREW_PREFIX=$(brew --prefix 2>/dev/null || echo "/opt/homebrew")
 DOMAIN_NAME=$(grep -E '^DOMAIN_NAME=' "${PROJECT_DIR}/config/settings.env" 2>/dev/null | cut -d= -f2 | tr -d '"')
 CONFIG_TOML="${PROJECT_DIR}/config/settings.toml"
+API_KEY=""
 
 if [ -f "$CONFIG_TOML" ]; then
-  read -r ROUTER_PORT FAST_PORT THINKING_PORT EMBEDDING_PORT OCR_PORT TTS_PORT WHISPER_PORT < <(
+  read -r ROUTER_PORT FAST_PORT THINKING_PORT EMBEDDING_PORT OCR_PORT TTS_PORT WHISPER_PORT API_KEY < <(
     python3 - <<'PY'
 import tomllib
 from pathlib import Path
 
 cfg = tomllib.loads(Path("config/settings.toml").read_text())
 services = cfg.get("services", {})
+server = cfg.get("server", {})
 
 def port(name, default):
     return services.get(name, {}).get("port", default)
+
+api_keys = server.get("api_keys", [])
+api_key = api_keys[0] if api_keys else server.get("api_key", "")
 
 print(
     port("router", 8080),
@@ -33,6 +38,7 @@ print(
     port("ocr", 8085),
     port("tts", 8086),
     port("whisper", 8087),
+    api_key,
 )
 PY
   )
@@ -44,6 +50,12 @@ else
   OCR_PORT=8085
   TTS_PORT=8086
   WHISPER_PORT=8087
+  API_KEY=""
+fi
+
+AUTH_HEADER_ARGS=()
+if [ -n "${API_KEY}" ]; then
+  AUTH_HEADER_ARGS=(-H "Authorization: Bearer ${API_KEY}")
 fi
 
 exec >"${REPORT_FILE}" 2>&1
@@ -76,13 +88,13 @@ sudo launchctl list | egrep 'com\.local\.|com\.mlx-box\.|homebrew\.mxcl\.nginx' 
 
 echo
 echo "== Chat / Embed quick checks =="
-echo "Router models:"; curl -s "http://127.0.0.1:${ROUTER_PORT}/v1/models" || true; echo
-echo "Fast models:"; curl -s "http://127.0.0.1:${FAST_PORT}/v1/models" || true; echo
-echo "Thinking models:"; curl -s "http://127.0.0.1:${THINKING_PORT}/v1/models" || true; echo
-echo "Embed models:"; curl -s "http://127.0.0.1:${EMBEDDING_PORT}/v1/models" || true; echo
-echo "OCR models:"; curl -s "http://127.0.0.1:${OCR_PORT}/v1/models" || true; echo
-echo "TTS models:"; curl -s "http://127.0.0.1:${TTS_PORT}/v1/models" || true; echo
-echo "Whisper models:"; curl -s "http://127.0.0.1:${WHISPER_PORT}/v1/models" || true; echo
+echo "Router models:"; curl -s "http://127.0.0.1:${ROUTER_PORT}/v1/models" "${AUTH_HEADER_ARGS[@]}" || true; echo
+echo "Fast models:"; curl -s "http://127.0.0.1:${FAST_PORT}/v1/models" "${AUTH_HEADER_ARGS[@]}" || true; echo
+echo "Thinking models:"; curl -s "http://127.0.0.1:${THINKING_PORT}/v1/models" "${AUTH_HEADER_ARGS[@]}" || true; echo
+echo "Embed models:"; curl -s "http://127.0.0.1:${EMBEDDING_PORT}/v1/models" "${AUTH_HEADER_ARGS[@]}" || true; echo
+echo "OCR models:"; curl -s "http://127.0.0.1:${OCR_PORT}/v1/models" "${AUTH_HEADER_ARGS[@]}" || true; echo
+echo "TTS models:"; curl -s "http://127.0.0.1:${TTS_PORT}/v1/models" "${AUTH_HEADER_ARGS[@]}" || true; echo
+echo "Whisper models:"; curl -s "http://127.0.0.1:${WHISPER_PORT}/v1/models" "${AUTH_HEADER_ARGS[@]}" || true; echo
 
 echo
 echo "== Nginx =="
@@ -103,6 +115,13 @@ echo "States (top 10):"; sudo pfctl -ss | head -n 10 || true
 
 echo
 echo "== Logs (tails) =="
+echo "Router backend stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.router-backend/stderr.log" 2>/dev/null || true; echo
+echo "Fast backend stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.fast-backend/stderr.log" 2>/dev/null || true; echo
+echo "Thinking backend stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.thinking-backend/stderr.log" 2>/dev/null || true; echo
+echo "Embedding backend stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.embedding-backend/stderr.log" 2>/dev/null || true; echo
+echo "OCR backend stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.ocr-backend/stderr.log" 2>/dev/null || true; echo
+echo "TTS backend stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.tts-backend/stderr.log" 2>/dev/null || true; echo
+echo "Whisper backend stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.whisper-backend/stderr.log" 2>/dev/null || true; echo
 echo "Fast stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.fast/stderr.log" 2>/dev/null || true; echo
 echo "Thinking stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.thinking/stderr.log" 2>/dev/null || true; echo
 echo "Embedding stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.embedding/stderr.log" 2>/dev/null || true; echo
