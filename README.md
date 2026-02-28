@@ -1,1040 +1,172 @@
 # mlx-box
 
-Nginx with SSL, firewall, and system services for high-performance local AI.
+Nginx + firewall + launchd services for a local, OpenAI-compatible MLX stack on macOS.
 
-## Quick Start
-1) Prepare config:
+**What you get**
+- Nginx TLS reverse proxy (certbot webroot)
+- pf firewall (only SSH/80/443)
+- LaunchDaemons for 7 services (router/fast/thinking/embedding/OCR/TTS/Whisper)
+- Auth proxy on frontend ports, backend MLX ports bound to localhost
+- Ops scripts for install, updates, smoke tests, reports
+
+---
+
+## Quick start
+1. Copy and edit config:
 ```sh
 cp config/settings.toml.example config/settings.toml
 cp config/settings.env.example config/settings.env
 hx config/settings.toml
 hx config/settings.env
 ```
-2) DNS: Point your domain A record to the server's public IP. Confirm:
-```sh
-curl ifconfig.me
-```
-3) Install:
+2. Point DNS to your server and forward ports 80/443 + SSH.
+3. Install:
 ```sh
 chmod +x install.sh
 ./install.sh
 ```
-4) Verify:
+4. Test services:
 ```sh
-sudo launchctl list | egrep 'nginx|mlx'
-BREW_PREFIX=$(brew --prefix)
-sudo nginx -T -c "$BREW_PREFIX/etc/nginx/nginx.conf" | egrep -n 'listen 443|allow |deny all'
-curl -I http://localhost:80
-curl -I https://YOUR.DOMAIN --resolve YOUR.DOMAIN:443:$(curl -s ifconfig.me)
-```
-5) Update Models (optional):
-```sh
-chmod +x update-model.sh
-# Update specific tiers
-./update-model.sh router mlx-community/Qwen3-0.6B-4bit
-./update-model.sh fast mlx-community/Qwen3.5-35B-A3B-4bit
-```
-
-## Handy Shell Commands
-```sh
-# Monitor network traffic (macOS)
-netstat -I en0 -w 1 | awk 'NR<=2{next} {printf "\rDown:%.2f MB  Up:%.2f MB", $3/1048576, $6/1048576; fflush()}'
-
-# Show cached models with sizes (largest first)
-for d in ~/.cache/huggingface/hub/models--*; do [ -d "$d" ] && du -sh "$d"; done | awk '{gsub(".*/models--","",$2); gsub(/--/,"/",$2); print $1"\t"$2}' | sort -hr
-
-# Monitor active model downloads (Hugging Face cache)
-while true; do \
-  date; \
-  find ~/.cache/huggingface/hub/models--* -path "*/blobs/*" -type f \( -name "*.incomplete" -o -name "*.lock" \) -exec ls -lh {} \; 2>/dev/null; \
-  echo "Recent blob writes (last 2 min):"; \
-  find ~/.cache/huggingface/hub/models--* -path "*/blobs/*" -type f -mmin -2 -print0 2>/dev/null | xargs -0 ls -lh 2>/dev/null; \
-  sleep 2; \
-done
-
-# Restart all services
-scripts/restart-all-services.sh
-
-# Smoke-test all services
 scripts/test-services.sh
 ```
 
-### What gets installed
-- Nginx (reverse proxy, SSL via certbot webroot, optional allowlist/basic auth)
-- pf firewall (opens only SSH, 80, 443)
-- **7 AI Services** (LaunchDaemons):
-  - **Router Service** (Port 8080): Tiny, fast model for request classification
-  - **Fast Service** (Port 8081): General purpose, low-latency model.
-    - *Optimization:* Uses a custom monkey-patched server (`patched_mlx_server.py`) to enforce **8-bit KV cache quantization**. This reduces context memory usage by ~50%, allowing multiple 30B models to fit comfortably in RAM.
-  - **Thinking Service** (Port 8083): High-reasoning model for complex tasks.
-    - *Optimization:* Also uses 8-bit KV cache quantization.
-  - **Embedding Service** (Port 8084): High-dimensional text embeddings
-  - **OCR Service** (Port 8085): OpenAI-compatible **vision** chat endpoint for OCR (olmOCR)
-  - **TTS Service** (Port 8086): OpenAI-compatible text-to-speech
-  - **Whisper Service** (Port 8087): OpenAI-compatible speech-to-text (STT)
-
-### Performance Note: KV Cache Quantization
-By default, the `mlx-lm` server wrapper does not expose an option for Key-Value (KV) cache quantization. To maximize efficiency on the Mac Studio (especially when running multiple heavy models), we use a wrapper script (`models/patched_mlx_server.py`) that monkey-patches `mlx_lm.load()` to force `kv_bits=8`. This significantly reduces the memory footprint of long contexts without noticeable quality loss.
-- Poetry-managed Python env in `models/`
-- Voice services live in `models/voice/` with a separate Poetry env to avoid dependency conflicts (notably `transformers` versions required by `qwen-tts` vs `mlx-openai-server`).
-- System report saved under `reports/` after successful install
+Optional: add a Hugging Face token to speed model downloads in `config/settings.env`:
+```sh
+HF_TOKEN=hf_...
+```
+Then restart services:
+```sh
+scripts/restart-all-services.sh
+```
 
 ---
 
-## 1. System Architecture: 3-Tier Intelligent Routing
-
-This project implements a multi-model architecture designed to balance speed, cost (resources), and capability.
+## Services and ports
+Frontend ports (auth) → backend ports (MLX):
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        User Input                                │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   TIER 0: Router Service (Port 8080)            │
-│              Qwen3-0.6B-4bit (~300+ tok/s)                       │
-│                                                                  │
-│  Classifies into: TRIVIAL | SIMPLE | COMPLEX | REASONING         │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-           ┌──────────────────┼──────────────────┐
-           │                  │                  │
-           ▼                  ▼                  ▼
-┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│   TIER 1: Fast  │ │  TIER 2: Fast   │ │ TIER 3: Thinking│
-│  (Port 8081)    │ │  (Port 8081)    │ │  (Port 8083)    │
-│                 │ │                 │ │                 │
-│ Qwen3.5-35B-A3B │ │ Qwen3.5-35B-A3B │ │ Qwen3.5-122B-A10B│
-│                 │ │                 │ │                 │
-│  ~100+ tok/s    │ │  ~100+ tok/s    │ │  ~50-80 tok/s   │
-└─────────────────┘ └─────────────────┘ └─────────────────┘
+router   8080 → 8090
+fast     8081 → 8091
+thinking 8083 → 8093
+embedding 8084 → 8094
+ocr      8085 → 8095
+tts      8086 → 8096
+whisper  8087 → 8097
 ```
 
--   **Outer Wall (Firewall):** The `pf` firewall is the first line of defense. It blocks all incoming traffic by default, only allowing connections on the standard web ports (`80/443`) and a custom SSH port.
--   **Gatekeeper (Nginx):** Nginx is the only service exposed to the internet. It terminates SSL (HTTPS) and acts as a secure reverse proxy, routing traffic to the appropriate internal application.
--   **Protected Core (Application Services):** The AI services are configured to listen only on `localhost` (loopback), making them completely inaccessible from the outside world. They can only be reached via the Nginx gatekeeper.
--   **Configuration as Code:** All server setup is defined in version-controlled scripts that read from a private, user-managed `config/settings.toml` file.
+Default models (see `config/settings.toml`):
+- router: `mlx-community/Qwen3-0.6B-4bit`
+- fast: `mlx-community/Qwen3.5-35B-A3B-4bit`
+- thinking: `nightmedia/Qwen3.5-122B-A10B-Text-mxfp4-mlx`
+- embedding: `Qwen/Qwen3-Embedding-8B`
+- ocr: `mlx-community/olmOCR-2-7B-1025-mlx-8bit`
+- tts: `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`
+- whisper: `mlx-community/whisper-small.en-4bit`
 
 ---
 
-## 2. Full System Provisioning
+## Config overview
+`config/settings.env` drives installation and system config:
+- `DOMAIN_NAME`, `LETSENCRYPT_EMAIL`, `SSH_PORT`
+- `ALLOWED_IPS` (optional nginx allowlist)
+- `HF_TOKEN` (optional HF download auth)
 
-These steps configure a fresh macOS installation. The `install.sh` script automates this entire section.
+`config/settings.toml` drives runtime:
+- `[services.*]` ports, backend ports, models
+- `[server] api_key` or `api_keys` for auth
 
-### 2.1. Headless Server Configuration
+---
 
-The script configures macOS for "always-on" server reliability: disabling sleep, enabling auto-restart on power failure, enabling Wake for Network Access, and enabling the SSH service.
+## Auth proxy layer
+Clients hit the frontend ports with an API key, which proxies to backend MLX services.
 
-### 2.2. User Prerequisites
-
-Before running the script, there are three required manual steps: setting up DNS, SSH, and your private configuration file.
-
-1.  **Set Up DNS:**
-    For the server to be accessible from the internet via a domain name and for SSL certificates to work, you must configure a DNS 'A' record.
-
-    -   **What is an 'A' Record?** It's a setting at your domain registrar (e.g., GoDaddy, Namecheap, Cloudflare) that points a domain name (like `mlx-box.yourdomain.com`) to a specific IP address.
-
-    -   **How to do it:**
-        1.  Find your server's **public IP address**. You can do this by running `curl ifconfig.me` on the server, or by checking your router's administration page.
-        2.  Log in to your domain registrar's website.
-        3.  Go to the DNS management section for your domain.
-        4.  Create a new 'A' record with the following settings:
-            -   **Host/Name:** `mlx-box` (or whatever subdomain you want)
-            -   **Value/Points to:** Your server's public IP address.
-            -   **TTL (Time to Live):** Set to a low value initially (like 300 seconds) if you are testing.
-
-    -   **Important:** DNS changes can take anywhere from a few minutes to a few hours to propagate across the internet. You can use a tool like [dnschecker.org](https://dnschecker.org/) to see when your new record is live before running the installer.
-
-2.  **Configure Port Forwarding on Your Router:**
-    To allow external traffic from the internet to reach your server, you must set up port forwarding on your router.
-
-    -   **How to do it:**
-        1.  Find your server's **local IP address** (e.g., `<LAN_IP>`) by running `ipconfig getifaddr en0` on the server.
-        2.  Log in to your router's administration web page.
-        3.  Find the "Port Forwarding" section (it may be called "Virtual Servers" or similar).
-        4.  Create the following three rules to forward traffic to your server's local IP:
-            -   **SSH:** External Port `22` -> Internal Port `22` (TCP)
-            -   **HTTP:** External Port `80` -> Internal Port `80` (TCP)
-            -   **HTTPS:** External Port `443` -> Internal Port `443` (TCP)
-        5.  Save and apply the changes. Your router may need to reboot.
-
-3.  **Set Up SSH Access:**
-    Place your client's public SSH key into the `authorized_keys` file on the server.
-    ```sh
-    mkdir -p ~/.ssh && echo "ssh-ed25519 AAA..." > ~/.ssh/authorized_keys
-    chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys
-    ```
-
-4.  **Create and Edit Your Configuration File:**
-    Copy the configuration templates and customize them with your domain, email, and other settings. The `.toml` file is used by the Python services, and the `.env` file is used by the installation scripts.
-    ```sh
-    cp config/settings.toml.example config/settings.toml
-    cp config/settings.env.example config/settings.env
-    hx config/settings.toml
-    hx config/settings.env
-    ```
-
-### 2.3. Running the Installer
-
-With the prerequisites met, run the master script from the project directory:
 ```sh
-chmod +x install.sh
-./install.sh
+curl http://localhost:8081/v1/models \
+  -H "Authorization: Bearer your-api-key"
 ```
-The script is idempotent and safe to re-run. It will install all tools, dynamically generate configuration files (`pf.conf`, `nginx.conf`), install all services, and attempt to obtain an SSL certificate.
 
-#### Optional: Enable Mosh for resilient SSH
+If `api_key` and `api_keys` are empty, auth is disabled. Only do this for strictly localhost use.
 
-If you want SSH-like sessions that survive Wi‑Fi changes and sleep, enable Mosh support:
+---
 
-1) Edit `config/settings.env` and set:
-```sh
-ENABLE_MOSH=1
-MOSH_PORT_START=60010
-MOSH_PORT_END=60020
-```
-2) Re-run the installer:
+## Voice stack (TTS + Whisper)
+Voice services live in `models/voice` with a **separate Poetry environment** to avoid `transformers` conflicts between `qwen-tts` and `mlx-openai-server`. They are still launched by the same installer so there is one place to manage services and launchd plists.
+
+Endpoints:
+- TTS: `POST /v1/audio/speech` on `8086`
+- Whisper: `POST /v1/audio/transcriptions` on `8087`
+
+`ffmpeg` and `sox` are required; the installer will auto-install them via Homebrew.
+
+---
+
+## Common operations
+Install/reinstall:
 ```sh
 ./install.sh
 ```
-This will install `mosh` via Homebrew and open the specified UDP port range in `firewall/pf.conf`.
 
-Note: If your server sits behind a router or cloud firewall, add an inbound UDP rule/port-forward for `MOSH_PORT_START`–`MOSH_PORT_END` to this host.
-
-See the detailed guide at `docs/mosh-setup-guide.md` for tmux integration and iTerm2 profiles.
-
----
-
-## 3. Configuration Explained
-
-The server is configured using two files in the `config/` directory.
-
-### `settings.env` (for the installer)
-
-This file uses a simple `KEY=VALUE` format and is used by the shell scripts (`install.sh`, `update-model.sh`, etc.) to configure the server environment. You must copy the example file and edit it before running the installer.
-
--   `DOMAIN_NAME`: **Required.** Your server's public domain name.
--   `LETSENCRYPT_EMAIL`: **Required.** Your email for SSL certificate registration.
--   `SSH_PORT`: The custom port for your SSH service.
--   `CHAT_PORT`: Default chat entrypoint (mapped to Fast tier).
--   `ROUTER_PORT`, `FAST_PORT`, `THINKING_PORT`, `EMBED_PORT`, `OCR_PORT`, `TTS_PORT`, `WHISPER_PORT`: Internal `localhost` ports for each service.
-
-### `settings.toml` (for the AI services)
-
-This file is used by the Python-based AI services (`chat-server.py`, `embed-server.py`) to select which models to load. It now supports multiple service tiers:
-
--   `[services.router]`: Configuration for the lightweight router model (default: Qwen3-0.6B).
--   `[services.fast]`: Configuration for the standard fast model (default: Qwen3.5-35B-A3B).
--   `[services.thinking]`: Configuration for the advanced reasoning model (default: Qwen3.5-122B-A10B).
--   `[services.embedding]`: Configuration for the embedding model.
--   `[services.tts]`: Configuration for the Qwen3-TTS service.
--   `[services.whisper]`: Configuration for the Whisper STT service.
-
-### Reasoning Filter (Hide Thinking Content)
-
-Both Fast and Thinking services support **reasoning filter** to hide thinking/reasoning content from clients while maintaining quality.
-
-**How it works:**
-- Models generate reasoning internally (improves answer quality)
-- Auth proxy strips reasoning before sending to client
-- Clients receive clean responses without thinking clutter
-
-**Filter methods:**
-- **Fast service**: Strips `<think>...</think>` tags from content (legacy format)
-- **Thinking service**: Strips `reasoning` field from message (modern format)
-
-**Configuration** (`config/settings.toml`):
-
-```toml
-[services.fast]
-filter_reasoning = true  # Strip <think> tags from responses
-
-[services.thinking]
-filter_reasoning = true  # Strip reasoning field from responses
-```
-
-**Benefits:**
-- ✅ Better quality (model still reasons internally)
-- ✅ Clean responses (no reasoning clutter for clients)
-- ✅ Bandwidth savings (reasoning can be 2-10x longer than answers)
-- ✅ Handles incomplete tags (when max_tokens cuts off response)
-
-See `docs/REASONING-FILTER-GUIDE.md` for detailed documentation.
-
----
-
-### Chat Service Generation Parameters
-
-Chat services (router, fast, thinking) support fine-tuned generation parameters for optimal quality and consistency:
-
-**Configuration Options** (`config/settings.toml`):
-
-```toml
-[services.router]
-port = 8080
-backend_port = 8090
-model = "mlx-community/Qwen3-0.6B-4bit"
-max_tokens = 100
-temperature = 0.1      # Low temp for deterministic classification
-top_p = 0.9
-frequency_penalty = 0.0
-presence_penalty = 0.0
-
-[services.fast]
-port = 8081
-backend_port = 8091
-model = "mlx-community/Qwen3.5-35B-A3B-4bit"
-max_tokens = 8192
-temperature = 0.6      # Balanced creativity
-top_p = 0.92
-frequency_penalty = 0.3
-
-[services.thinking]
-port = 8083
-backend_port = 8093
-model = "nightmedia/Qwen3.5-122B-A10B-Text-mxfp4-mlx"
-max_tokens = 32768
-thinking_budget = 16384
-temperature = 0.2          # Low temp for precise reasoning
-top_p = 0.9
-frequency_penalty = 0.0
-```
-
-**Parameter Guide:**
-
-- `temperature`: Controls randomness (0.0 = deterministic, 1.0 = creative)
-  - Router (0.1): Consistent classification
-  - Fast (0.6): Balanced responses
-  - Thinking (0.2): Precise reasoning
-- `top_p`: Nucleus sampling threshold (0.9-0.95 recommended)
-- `frequency_penalty`: Reduces word repetition (0.0-1.0, currently not supported by MLX server)
-- `presence_penalty`: Encourages topic diversity (0.0-1.0, currently not supported by MLX server)
-- `max_tokens`: Maximum context window
-  - Fast: 8192 tokens (2x baseline)
-  - Thinking: 16384 tokens (2x baseline)
-- `thinking_budget`: Additional tokens for chain-of-thought reasoning (thinking tier only)
-
-**Note:** The MLX server currently supports `temperature` and `top_p` parameters. The `frequency_penalty` and `presence_penalty` parameters are stored in config but not yet passed to the server.
-
-**Reasoning Filter:** Set `filter_reasoning = true` to hide thinking/reasoning content while maintaining quality. See section above for details.
-
-### Embedding Service Configuration
-
-The embedding service (`embed-server.py`) provides high-quality semantic embeddings for document search and similarity tasks. It's optimized for Qwen3-Embedding models with several key features:
-
-**Configuration Options** (`config/settings.toml`):
-
-```toml
-[services.embedding]
-port = 8084              # Frontend port (with auth)
-backend_port = 8094      # Backend service port (no auth)
-model = "Qwen/Qwen3-Embedding-8B"
-batch_size = 64          # Process 64 texts at once for efficiency
-max_seq_length = 1024    # Handle chunks up to 1024 tokens (can go up to 32K)
-quantization = true      # Quantize outputs to int8 (75% storage savings, 4-8x faster similarity)
-```
-
-**Key Features:**
-
-1. **Prefix Support** (5-10% quality improvement)
-   - Qwen3 models are trained with prefixes for optimal results
-   - Use `"passage"` prefix for documents being stored
-   - Use `"query"` prefix for search queries
-   - Example request:
-     ```json
-     {
-       "input": "How to build exercise habits?",
-       "prefix": "query"
-     }
-     ```
-
-2. **Output Quantization** (75% space savings, 4-8x faster similarity)
-   - Enabled by default with `quantization = true`
-   - Quantizes embedding outputs to int8 (fp32 → int8)
-   - Minimal quality loss (~99% accuracy)
-   - Reduces embedding storage by 75%
-   - Note: Model still uses ~16-20GB RAM (weights not quantized)
-   - Similarity search operations are 4-8x faster with int8
-
-3. **Configurable Context Length**
-   - Default: 1024 tokens (good for most documents)
-   - Can handle up to 32,000 tokens
-   - Larger chunks preserve more semantic context
-   - Adjust with `max_seq_length` in config
-
-4. **Batch Processing**
-   - Processes multiple texts simultaneously
-   - Default batch size: 64
-   - Dramatically faster than one-at-a-time
-
-**API Usage:**
-
-```bash
-# Embed documents with "passage" prefix (default)
-curl http://localhost:8084/v1/embeddings \
-  -H "Authorization: Bearer your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": "This is the document content to embed",
-    "prefix": "passage"
-  }'
-
-# Embed search query with "query" prefix
-curl http://localhost:8084/v1/embeddings \
-  -H "Authorization: Bearer your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": "search query text",
-    "prefix": "query"
-  }'
-
-# Batch embed multiple texts
-curl http://localhost:8084/v1/embeddings \
-  -H "Authorization: Bearer your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": ["text 1", "text 2", "text 3"],
-    "prefix": "passage"
-  }'
-```
-
-**Performance Expectations** (M4 Max, 128GB RAM, Qwen3-8B with int8 output quantization):
-- Single query: ~200-400ms (embedding generation)
-- Batch of 16: ~600-900ms total (~40-60ms per item)
-- 500 document chunks: ~2-3 minutes
-- Model memory: ~16-20 GB (model weights in RAM)
-- Embedding storage: 75% reduced (int8 vs fp32)
-- Similarity search: 4-8x faster with quantized embeddings
-- Dimensions: 4096 (verify with `/v1/models` endpoint)
-
-**Health Check:**
-
-```bash
-curl http://localhost:8084/health
-```
-
-Returns:
-```json
-{
-  "status": "healthy",
-  "model": "Qwen/Qwen3-Embedding-8B",
-  "model_loaded": true,
-  "device": "mps",
-  "batch_size": 64,
-  "max_seq_length": 1024,
-  "quantization": true,
-  "dimensions": 4096
-}
-```
-
-**Technical Details: How Quantization Works**
-
-The int8 quantization uses a simple linear scaling approach:
-
-1. **Generate embeddings** in float32 (e.g., values from -0.0878 to 0.0876)
-2. **Scale to int8 range** [-128, 127] using formula:
-   ```
-   int8_value = ((float_value - min) / (max - min) * 255) - 128
-   ```
-3. **Return quantized embeddings** as integers
-
-Example transformation:
-```
-Float32: [0.0128, -0.0073, -0.0157, ...]
-   ↓
-Int8:    [45, -12, -89, ...]
-```
-
-**Important Notes:**
-- Model weights remain in float32 (~16-20GB RAM usage unchanged)
-- Only output embeddings are quantized (75% storage savings)
-- Quantization is applied per-request (stateless)
-- Similarity calculations are 4-8x faster with int8 values
-- ~99% accuracy retention compared to float32
-
----
-
-## 4. Model Management
-
-You can easily switch to a new chat model without re-running the entire installation using the `update-model.sh` script.
-
-### Using the `update-model.sh` Script
-
-The script now requires a **service name** (router, fast, thinking) in addition to the model ID.
-
+Restart all services:
 ```sh
-# Make the script executable
-chmod +x update-model.sh
+scripts/restart-all-services.sh
+```
 
-# Update the Router model
-./update-model.sh router mlx-community/Qwen3-0.6B-4bit
-
-# Update the Fast model
+Update a model:
+```sh
 ./update-model.sh fast mlx-community/Qwen3.5-35B-A3B-4bit
-
-# Update the Thinking model
-./update-model.sh thinking nightmedia/Qwen3.5-122B-A10B-Text-mxfp4-mlx
-
-# Update the OCR (vision) model
-./update-model.sh ocr mlx-community/olmOCR-2-7B-1025-mlx-8bit
-
-# Update the TTS model
-./update-model.sh tts Qwen3-TTS-12Hz-0.6B-CustomVoice
-
-# Update the Whisper model
-./update-model.sh whisper small.en
 ```
 
-The script will handle the rest. The server will download the new model (which can take some time) and load it.
-
----
-
-## OCR service (olmOCR) — OpenAI-compatible vision chat
-
-This project includes an OCR/VLM service designed specifically for screenshots, receipts, and scanned documents.
-
-- **Service**: `com.mlx-box.ocr`
-- **Port**: `8085`
-- **API**: OpenAI-compatible `POST /v1/chat/completions`
-- **Model**: `mlx-community/olmOCR-2-7B-1025-mlx-8bit`
-
-### Configuration
-
-In your private `config/settings.toml`, add:
-
-```toml
-[services.ocr]
-port = 8085
-model = "mlx-community/olmOCR-2-7B-1025-mlx-8bit"
-# Recommended stability settings
-max_concurrency = 1
-```
-
-### How it works (implementation detail)
-
-Unlike the text tiers (which run `mlx_lm.server`), OCR runs a multimodal OpenAI-compatible server via `mlx-openai-server` (which uses `mlx-vlm` internally) so it can accept the standard `image_url` message parts while still exposing `/v1/*` endpoints.
-
-### Python version note (important after upgrades)
-
-The OCR dependency stack currently requires **Python < 3.13**. If a macOS/software update upgraded your default Python to 3.13, the OCR service may fail to install/start unless the Poetry env is pinned to Python 3.12.
-
-`models/startup-services-install.sh` now **auto-installs Homebrew `python@3.12`** (if missing) and runs:
-- `poetry env use /opt/homebrew/bin/python3.12`
-- `poetry install --no-root` (dependency sync only; avoids packaging metadata issues)
-
-### Test on the real server
-
-1) Install/update Python deps (once):
-
+Validate config:
 ```sh
-cd models
-poetry install --no-root
+scripts/validate-config.py
+```
+
+Generate a system report:
+```sh
+scripts/generate_system_report.sh
+```
+
+Security audit:
+```sh
+scripts/security-audit-mlx.sh
 ```
 
 ---
 
-## Voice Stack (TTS + Whisper)
-
-### TTS (Text-to-Speech)
-
-**Env:** `models/voice` (separate Poetry env to avoid dependency conflicts)
-
-**Endpoint:** `POST /v1/audio/speech`  
-**Service:** `com.mlx-box.tts`  
-**Port:** `8086`
-
-```bash
-curl -s http://localhost:8086/v1/audio/speech \
-  -H "Authorization: Bearer your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "tts",
-    "input": "Hello from MLX-Box TTS."
-  }' --output tts.wav
-```
-
-### Whisper (Speech-to-Text)
-
-**Env:** `models/voice` (separate Poetry env to avoid dependency conflicts)
-
-**Endpoint:** `POST /v1/audio/transcriptions`  
-**Service:** `com.mlx-box.whisper`  
-**Port:** `8087`
-
-```bash
-curl -s http://localhost:8087/v1/audio/transcriptions \
-  -H "Authorization: Bearer your-api-key" \
-  -F "file=@/path/to/audio.wav" \
-  -F "model=whisper"
-```
-
-2) Ensure the service is installed/bootstrapped (or reinstall all services):
-
+## Troubleshooting
+- Check logs:
 ```sh
-sudo ./models/startup-services-install.sh
+tail -f ~/Library/Logs/com.mlx-box.*/stderr.log
 ```
-
-3) Confirm it’s up:
-
-```sh
-curl http://localhost:8085/v1/models
-```
-
-4) Send a real OCR request (base64 `data:` URL):
-
-```sh
-IMG="/path/to/image.png"
-B64=$(python3 - <<'PY'
-import base64, os, sys
-img = os.environ["IMG"]
-with open(img, "rb") as f:
-    print(base64.b64encode(f.read()).decode("utf-8"))
-PY
-)
-
-curl -s http://localhost:8085/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"model\": \"olmocr\",
-    \"messages\": [{
-      \"role\": \"user\",
-      \"content\": [
-        {\"type\": \"image_url\", \"image_url\": {\"url\": \"data:image/png;base64,${B64}\"}},
-        {\"type\": \"text\", \"text\": \"Extract all text from this image.\"}
-      ]
-    }],
-    \"max_tokens\": 1024,
-    \"stream\": false
-  }"
-```
-
-5) Monitor logs while it downloads/loads:
-
-```sh
-REAL_USER=${SUDO_USER:-$(whoami)}
-tail -f "/Users/${REAL_USER}/Library/Logs/com.local.ocr-server/stderr.log"
-```
+- If fast/thinking return “Backend service unavailable”, the model is probably still downloading. Set `HF_TOKEN` and restart services.
+- Whisper errors about `ffmpeg` mean the dependency is missing; rerun `./install.sh` or install with `brew install ffmpeg sox`.
+- `scripts/test-services.sh` is the quickest health check.
 
 ---
 
-## System daemon: running the chat server as a LaunchDaemon
-
-When installing `mlx-box` as a system-level service, running a user-owned `poetry run` command directly from a system LaunchDaemon may fail because system daemons run in a root context without a user shell. To avoid environment and permission mismatches we use a small, root-owned launcher script that executes the project's Poetry virtualenv Python with absolute paths.
-
-Note: The installer (`models/startup-services-install.sh`) now automatically creates the root-owned launchers in `/usr/local/bin` and writes the LaunchDaemon plists to call them. The manual steps below are provided for reference and for customizing installs.
-
-Why this matters
-- `launchd` will refuse or repeatedly fail a plist that tries to invoke user-shell helpers (like `poetry run`) from the system domain.
-- A root-owned launcher bridges the gap: it runs as root, sets the correct `HOME`, `cd`'s to the project `WorkingDirectory`, and `exec`'s the venv python with the absolute path to `chat-server.py`.
-
-Quick install (admin steps)
-
-1.  Create the launcher (run as an admin):
-
+## Updating the repo
 ```sh
-sudo mkdir -p /usr/local/bin
-sudo tee /usr/local/bin/mlx-chat-launcher.sh > /dev/null <<'SH'
-#!/bin/bash
-export HOME="/var/root"
-VENV_PY="/path/to/poetry/venv/bin/python3"
-SCRIPT="/absolute/path/to/mlx-box/models/chat-server.py"
-# ... args passed from plist ...
-cd /absolute/path/to/mlx-box/models || exit 1
-exec "$VENV_PY" "$SCRIPT" "$@"
-SH
-sudo chmod 755 /usr/local/bin/mlx-chat-launcher.sh
-sudo chown root:wheel /usr/local/bin/mlx-chat-launcher.sh
-```
-
-2.  Replace the LaunchDaemon `ProgramArguments` with the launcher (backup first) — if you used the installer, this is already done:
-
-```sh
-sudo cp /Library/LaunchDaemons/com.local.mlx-chat-server.plist /tmp/com.local.mlx-chat-server.plist.bak
-sudo tee /Library/LaunchDaemons/com.local.mlx-chat-server.plist > /dev/null <<'PLIST'
-... (plist that calls /usr/local/bin/mlx-chat-launcher.sh) ...
-PLIST
-sudo chown root:wheel /Library/LaunchDaemons/com.local.mlx-chat-server.plist
-sudo chmod 644 /Library/LaunchDaemons/com.local.mlx-chat-server.plist
-```
-
-3.  Ensure log directory exists and is owned by the service user:
-
-```sh
-sudo mkdir -p ~/Library/Logs/com.local.mlx-chat-server
-sudo chown -R "$USER":staff ~/Library/Logs/com.local.mlx-chat-server
-sudo chmod 755 ~/Library/Logs/com.local.mlx-chat-server
-```
-
-4.  Bootstrap and start the daemon (or re-bootstrap after changes):
-
-```sh
-sudo launchctl bootout system /Library/LaunchDaemons/com.local.mlx-chat-server.plist 2>/dev/null || true
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.local.mlx-chat-server.plist
-sudo launchctl start com.local.mlx-chat-server
-tail -f ~/Library/Logs/com.local.mlx-chat-server/stderr.log
-```
-
-Notes
-- If you prefer the service to run under your user environment (so `poetry run` works natively), install the plist as a **LaunchAgent** in `~/Library/LaunchAgents` and bootstrap it from a GUI session. The launcher approach is recommended for system daemons.
-
----
-
-## Restricting HTTPS access (IP allowlist)
-
-You can restrict HTTPS (port 443) to specific client IPs using the `ALLOWED_IPS` setting. The installer will generate the allow/deny directives inside the `listen 443 ssl;` server block in nginx.
-
-1. Set the allowlist in `config/settings.env` (comma-separated, no spaces):
-```sh
-echo 'ALLOWED_IPS=203.0.113.10,198.51.100.10' >> config/settings.env
-```
-
-2. Re-run the installer (safe to re-run), or reload nginx after regeneration:
-```sh
+git pull --rebase
 ./install.sh
-# or, if nginx.conf is already regenerated
-BREW_PREFIX=$(brew --prefix)
-sudo nginx -t -c "$BREW_PREFIX/etc/nginx/nginx.conf"
-sudo launchctl kickstart -k system/homebrew.mxcl.nginx
-```
-
-3. Verify the active config contains the allow/deny lines under the 443 block:
-```sh
-BREW_PREFIX=$(brew --prefix)
-sudo nginx -T -c "$BREW_PREFIX/etc/nginx/nginx.conf" | egrep -n 'listen 443|allow |deny all'
-```
-
-Notes
-- If `ALLOWED_IPS` is empty, no allow/deny directives are added and 443 is publicly accessible.
-- Use your public IPs (as seen by the server). If you are behind another proxy, consider enabling a trusted-proxy setup with `real_ip`.
-
----
-
-## 5. Updating Your Server
-
-To update your server to the latest version of the `mlx-box` code, follow this procedure. This process is designed to be safe and to preserve your existing configuration and data.
-
-### Step 1: Back Up Your System
-Before any update, perform a full backup of your critical data. This gives you a safe restore point.
-```sh
-# Navigate to your home directory for the backup file
-cd ~
-# Create a timestamped backup of your config and SSL certs
-sudo tar -czvf mlx-box-backup-$(date +%Y-%m-%d).tar.gz /absolute/path/to/mlx-box/config /etc/letsencrypt
-```
-
-### Step 2: Fetch the Latest Code
-Navigate to the project directory and pull the latest changes from the Git repository.
-    ```sh
-    cd /absolute/path/to
-    git pull origin main # Or your primary branch
-    ```
-
-### Step 3: Review Configuration Changes
-New versions of the server may introduce new settings. It's crucial to compare your private configuration with the new template.
-```sh
-# Use the 'diff' command to see what's new in the example file
-diff config/settings.toml config/settings.toml.example
-```
-After reviewing the differences, manually copy any new settings from the `.example` file into your main `config/settings.toml` and configure them.
-
-### Step 4: Update Dependencies
-The new code may require new or updated Python libraries. Run `poetry install` to sync your environment.
-```sh
-(cd models && poetry install --no-root)
-```
-
-### Step 5: Re-run the Master Installer
-The `install.sh` script is designed to be safely re-run for updates. It will intelligently apply the latest configurations, restart services, and ensure the system is in the correct state.
-    ```sh
-    ./install.sh
-    ```
-
-### Step 6: Verify the Update
-After the script completes, check that the services are running and accessible.
-```sh
-# Check the status of the Nginx service
-sudo launchctl list | grep nginx
-
-# Check the application logs for any errors
-tail -f ~/Library/Logs/com.local.mlx-chat-server/stderr.log
+scripts/test-services.sh
 ```
 
 ---
 
-## 6. Backup and Disaster Recovery
-
-The backup strategy separates private user data from public, replaceable code.
-
-### 5.1. What to Back Up
--   The entire `config/` directory.
--   The SSL certificates managed by certbot: `/etc/letsencrypt/`
--   **System Configurations (for reference):** While the installer script regenerates these, the backups it creates (e.g., in `/opt/homebrew/etc/nginx/`) can be useful.
-
-**Example Backup Command:**
-```sh
-# Create a timestamped backup archive of critical data
-sudo tar -czvf mlx-box-backup-$(date +%Y-%m-%d).tar.gz /absolute/path/to/mlx-box/config /etc/letsencrypt
-```
-
-### 5.2. Restore Procedure
-1.  Provision a fresh server using the `install.sh` script (after setting up DNS, SSH, and your `config/` files).
-2.  Transfer your latest backup file to the server.
-3.  Unpack the backup archive from the root directory:
-    ```sh
-    # This will restore your config and SSL certs
-    sudo tar -xzvf mlx-box-backup-2024-01-01.tar.gz -C /
-    ```
-4.  Restart the services (`sudo launchctl kickstart -k system/homebrew.mxcl.nginx`, etc.) to use the restored configurations.
-
-*(Other sections like `wooster` installation, service management, and troubleshooting would be updated to reflect the new Nginx-based URLs and localhost-only service access.)*
+## Architecture (short)
+- pf firewall allows SSH/80/443 only.
+- Nginx terminates TLS and proxies requests to localhost services.
+- LaunchDaemons run backend MLX servers and auth proxies.
 
 ---
 
-## 7. API Key Authentication
+## Scripts reference
+- `scripts/test-services.sh`: smoke tests all endpoints
+- `scripts/restart-all-services.sh`: restart launchd services
+- `scripts/benchmark-services.sh`: quick latency and throughput checks
+- `scripts/generate_system_report.sh`: captures a full system report under `reports/`
+- `scripts/collect_system_info.sh`: writes `config/system-info.env`
+- `scripts/monitor-memory.sh`: RAM/swap usage overview
+- `scripts/security-audit-mlx.sh`: permission/exposure checks
 
-MLX services support API key authentication to secure access over Tailscale or network connections. This protects against unauthorized access when services are exposed beyond localhost.
-
-### Architecture
-
-The authentication system uses a two-layer approach:
-- **Frontend layer** (authenticated): Clients connect here with API key validation
-- **Backend layer** (no auth): Actual MLX services run here on localhost-only
-
-```
-Client → [Frontend Port + Auth Proxy] → [Backend Port + MLX Service]
-```
-
-### Configuration
-
-**Option 1: Single API Key** (backward compatible)
-```toml
-[server]
-api_key = "your-secret-api-key-here"
-```
-
-**Option 2: Multiple API Keys** (recommended for multiple clients)
-```toml
-[server]
-api_keys = [
-    "production-bartleby-key-here",  # Production Bartleby instance
-    "development-bartleby-key-here", # Development/testing
-    "personal-client-key-here",      # Other clients
-]
-```
-
-**Generating secure keys:**
-```bash
-openssl rand -hex 32
-```
-
-**Why multiple keys?**
-- Different keys for production vs development environments
-- Separate keys per client for tracking and revocation
-- Disable one key without affecting others
-
-**Port Mappings** (automatically configured):
-
-| Service | Frontend Port (auth) | Backend Port (MLX) |
-|---------|---------------------|-------------------|
-| Router  | 8080               | 8090              |
-| Fast    | 8081               | 8091              |
-| Thinking| 8083               | 8093              |
-| Embedding| 8084              | 8094              |
-| OCR     | 8085               | 8095              |
-| TTS     | 8086               | 8096              |
-| Whisper | 8087               | 8097              |
-
-### Client Configuration
-
-Clients must send the API key in the Authorization header:
-```bash
-curl http://localhost:8081/v1/models \
-  -H "Authorization: Bearer your-secret-api-key-here"
-```
-
-For OpenAI-compatible clients:
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://localhost:8081/v1",
-    api_key="your-secret-api-key-here"
-)
-```
-
-### Security Model
-
-- **SSH Tunnel access**: API key validation ensures only authorized clients can use services
-- **Tailscale access**: Protects against unauthorized access from Tailscale network peers
-- **Siri/External clients**: Validates all network requests to Bartleby → MLX chain
-
-### Disabling Authentication
-
-To run without authentication (localhost-only development), omit or leave empty both `api_key` and `api_keys` in `settings.toml`:
-```toml
-[server]
-# api_key = ""      # No single key
-# api_keys = []     # No multiple keys
-```
-
-**Warning**: Only disable auth if services are strictly localhost-only and never exposed via Tailscale or network.
-
-### After Configuration Changes
-
-When you add or modify API keys, restart all auth proxy services:
-```bash
-sudo launchctl kickstart -k system/com.mlx-box.router
-sudo launchctl kickstart -k system/com.mlx-box.fast
-sudo launchctl kickstart -k system/com.mlx-box.thinking
-sudo launchctl kickstart -k system/com.mlx-box.embedding
-sudo launchctl kickstart -k system/com.mlx-box.ocr
-sudo launchctl kickstart -k system/com.mlx-box.tts
-sudo launchctl kickstart -k system/com.mlx-box.whisper
-```
-
-Verify authentication is working:
-```bash
-# Without key (should fail with 401)
-curl http://localhost:8081/v1/models
-
-# With key (should succeed)
-curl http://localhost:8081/v1/models \
-  -H "Authorization: Bearer your-key-here"
-```
-
----
-
-## 8. Remote Access via SSH Tunnel
-
-Access MLX models from remote machines via SSH tunnels over Tailscale. The services remain bound to `localhost` (loopback only) - tunnels provide secure encrypted access without exposing ports.
-
-### Setup
-
-**On client machine:**
-
-1. Get server's Tailscale IP:
-   ```bash
-   # On mlx-box server
-   tailscale ip -4  # e.g., <TAILSCALE_IP>
-   ```
-
-2. Create SSH tunnel (replace `<SSH_PORT>` from your `settings.env` and `<TAILSCALE_IP>`):
-   ```bash
-   ssh -p <SSH_PORT> \
-       -L 8080:localhost:8080 \
-       -L 8081:localhost:8081 \
-       -L 8083:localhost:8083 \
-       -L 8084:localhost:8084 \
-       -L 8085:localhost:8085 \
-       -L 8086:localhost:8086 \
-       -L 8087:localhost:8087 \
-       user@<TAILSCALE_IP>
-   ```
-
-3. Test: `curl http://localhost:8081/v1/models`
-
-**Port mapping:**
-- 8080: Router model
-- 8081: Fast model (CHAT_PORT)
-- 8083: Thinking model
-- 8084: Embeddings (EMBED_PORT)
-- 8085: OCR/Vision model
-- 8086: TTS
-- 8087: Whisper (STT)
-
-**For persistent tunnels**, add to `~/.ssh/config`:
-```
-Host mlx-box
-    HostName <TAILSCALE_IP>
-    Port <SSH_PORT>
-    User <username>
-    LocalForward 8080 localhost:8080
-    LocalForward 8081 localhost:8081
-    LocalForward 8083 localhost:8083
-    LocalForward 8084 localhost:8084
-    LocalForward 8085 localhost:8085
-    LocalForward 8086 localhost:8086
-    LocalForward 8087 localhost:8087
-    ServerAliveInterval 60
-```
-
-Then: `ssh mlx-box`
-
-**Multiple clients:** Can connect simultaneously via separate tunnels. Requests queue independently with proper response routing.
-
----
-
-## Scripts: System Info and Reports
-
-These helper scripts capture system details and generate a consolidated report for post-install validation and ongoing troubleshooting.
-
-### `scripts/collect_system_info.sh`
-
-- Purpose: Snapshot key system facts (OS, CPU, RAM, disk free, primary IP, Hugging Face cache, project directory) into an env file for reuse.
-- Output: Writes `config/system-info.env`.
-- Run manually:
-    ```sh
-    scripts/collect_system_info.sh
-    cat config/system-info.env
-    ```
-
-### `scripts/generate_system_report.sh`
-
-- Purpose: Produce a timestamped, human-readable report aggregating system info, service status, nginx config, certbot status, firewall rules, and tails of critical logs.
-- Output: Saves under `reports/` as `system-report-YYYYMMDD-HHMMSS.txt`.
-- Auto-run: Executed automatically by `install.sh` on success.
-- Run manually anytime:
-    ```sh
-    scripts/generate_system_report.sh
-    ls -1 reports/
-    ```
-
----
-
-## Unified logging and monitoring plan (proposal)
-
-This section outlines a practical plan to centralize logs, add lightweight 1-minute system metrics, and trigger admin alerts on thresholds. Implementation will be staged in scripts and services.
-
-### Logging sources to unify
-- Application/API:
-  - Python services (`models/chat-server.py`, `models/embed-server.py`): structured stdout/stderr to `~/Library/Logs/com.local.{service}/` via `launchd`.
-  - Nginx access/error logs: include client IP, time, status, and authenticated user if basic auth is enabled.
-
-### Access and auth logging
-- Enable Nginx `log_format` to capture: `$remote_addr`, `$remote_user`, `$time_local`, `$request`, `$status`, `$body_bytes_sent`, `$http_referer`, `$http_user_agent`.
-- With basic auth enabled on 443, `$remote_user` will indicate the login user. Failed auth attempts appear in the error log.
-
-### Historical diagnostics (every 1 minute)
-- Collector script (to be added): `scripts/monitor_poll.sh` will append one-line CSV samples to `logs/metrics.csv` with:
-  - timestamp, cpu_percent, gpu_util (if available on Apple GPU), mem_used_percent, net_bytes_in/s, net_bytes_out/s, disk_used_percent
-- Scheduling: Install as a `launchd` agent/daemon with a StartInterval of 60 seconds.
-- Storage/retention: Rotate metrics weekly; keep 30 days by default.
-
-### Thresholds and alerts
-- Config in `config/settings.env` (to be added):
-  - `ALERT_EMAIL=admin@example.com`
-  - `ALERT_CPU_PCT=90`
-  - `ALERT_MEM_PCT=90`
-  - `ALERT_DISK_PCT=90`
-  - `ALERT_NET_MBPS=800` (optional)
-- Alerting transport:
-  - Email via the system `postfix` (macOS) using `mail`/`sendmail`, or configure an SMTP relay (e.g., `msmtp`) if `postfix` is disabled.
-  - Optional webhook (Slack/Discord) via `curl` for redundancy.
-- Alert policy:
-  - Trigger when a threshold is exceeded for 3 consecutive samples (3 minutes) to reduce noise.
-  - Send one notification per incident with a cool-down window (e.g., 30 minutes) unless the severity increases.
-
-### Admin report and triage
-- On each successful `install.sh` run, a full report is generated (see above). For incidents, the alert includes the last 20 lines of:
-  - Nginx error log
-  - Chat server log
-  - Embed server log
-  - Recent metrics window from `logs/metrics.csv`
-
-### Implementation checklist (next steps)
-- Add `scripts/monitor_poll.sh` to sample metrics portably on macOS.
-- Add a `launchd` plist to schedule the poller every 60s.
-- Extend `install.sh` to install/start the poller and to read alert thresholds from `config/settings.env` when present.
-- Add an alert sender (`scripts/send_alert.sh`) that supports email and optional webhook.
-- Document rotation and retention in `README.md` and add `logs/` to `.gitignore` (keep this directory local-only).
+Additional archival notes live under `devs-notes/`.
