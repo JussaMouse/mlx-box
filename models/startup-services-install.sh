@@ -20,15 +20,22 @@ USER_HOME="/Users/$REAL_USER"
 # Dynamically determine the absolute path to the project directory.
 PROJECT_DIR=$(cd "$(dirname "$0")" && pwd)
 CONFIG_DIR="$PROJECT_DIR/../config"
+VOICE_DIR="$PROJECT_DIR/voice"
 
 echo "👤 User: $REAL_USER"
 echo "🏠 Home: $USER_HOME"
 echo "📁 Project: $PROJECT_DIR"
 echo "⚙️  Config: $CONFIG_DIR"
+echo "🎙️  Voice: $VOICE_DIR"
 
 # Check if project directory exists
 if [ ! -d "$PROJECT_DIR" ]; then
     echo "❌ Project directory not found: $PROJECT_DIR"
+    exit 1
+fi
+
+if [ ! -d "$VOICE_DIR" ]; then
+    echo "❌ Voice project directory not found: $VOICE_DIR"
     exit 1
 fi
 
@@ -79,12 +86,28 @@ if [ ! -x "$PY312" ]; then
     run_as_user "$BREW_BIN" install python@3.12
 fi
 
+# Audio dependencies for Whisper/TTS
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "📦 Installing ffmpeg (required for Whisper audio decoding)..."
+    run_as_user "$BREW_BIN" install ffmpeg
+fi
+
+if ! command -v sox >/dev/null 2>&1; then
+    echo "📦 Installing sox (recommended for TTS audio processing)..."
+    run_as_user "$BREW_BIN" install sox
+fi
+
 echo "🔧 Ensuring Poetry uses Python 3.12 for this project..."
 run_as_user bash -lc "cd \"$PROJECT_DIR\" && \"$POETRY_PATH\" env use \"$PY312\""
 echo "📦 Installing/updating Python deps (poetry install)..."
 run_as_user bash -lc "cd \"$PROJECT_DIR\" && \"$POETRY_PATH\" install --no-interaction --no-root"
 
-# Create log directories for all services (both backend and frontend)
+echo "🔧 Ensuring Poetry uses Python 3.12 for voice services..."
+run_as_user bash -lc "cd \"$VOICE_DIR\" && \"$POETRY_PATH\" env use \"$PY312\""
+echo "📦 Installing/updating voice deps (poetry install)..."
+run_as_user bash -lc "cd \"$VOICE_DIR\" && \"$POETRY_PATH\" install --no-interaction --no-root"
+
+# Create log directories for all services (both backend and auth proxy)
 LOG_BASE="$USER_HOME/Library/Logs"
 SERVICES=(
     "com.mlx-box.router-backend"
@@ -97,6 +120,10 @@ SERVICES=(
     "com.mlx-box.embedding"
     "com.mlx-box.ocr-backend"
     "com.mlx-box.ocr"
+    "com.mlx-box.tts-backend"
+    "com.mlx-box.tts"
+    "com.mlx-box.whisper-backend"
+    "com.mlx-box.whisper"
 )
 
 for service in "${SERVICES[@]}"; do
@@ -120,6 +147,15 @@ create_backend_launcher() {
 #!/bin/bash
 export HOME="$USER_HOME"
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$USER_HOME/.local/bin"
+ENV_FILE="$CONFIG_DIR/settings.env"
+if [ -f "\$ENV_FILE" ]; then
+    set -a
+    . "\$ENV_FILE"
+    set +a
+fi
+export MLX_BOX_ROOT="$PROJECT_DIR/.."
+export MLX_BOX_CONFIG="$CONFIG_DIR/settings.toml"
+export NUMBA_CACHE_DIR="\${NUMBA_CACHE_DIR:-$USER_HOME/Library/Caches/numba}"
 cd "$PROJECT_DIR" || exit 1
 exec "$POETRY_PATH" run python3 chat-server.py --service $SERVICE_ARG
 SH
@@ -128,10 +164,10 @@ SH
     echo "  Created backend launcher: $LAUNCHER_PATH"
 }
 
-# Helper function to create Frontend Auth Proxy Launchers
-create_frontend_launcher() {
+# Helper function to create Auth Proxy Launchers
+create_auth_launcher() {
     local SERVICE=$1
-    local FRONTEND_PORT=$2
+    local AUTH_PORT=$2
     local BACKEND_PORT=$3
     local LAUNCHER_PATH="/usr/local/bin/mlx-${SERVICE}-auth-launcher.sh"
 
@@ -139,10 +175,19 @@ create_frontend_launcher() {
 #!/bin/bash
 export HOME="$USER_HOME"
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$USER_HOME/.local/bin"
+ENV_FILE="$CONFIG_DIR/settings.env"
+if [ -f "\$ENV_FILE" ]; then
+    set -a
+    . "\$ENV_FILE"
+    set +a
+fi
+export MLX_BOX_ROOT="$PROJECT_DIR/.."
+export MLX_BOX_CONFIG="$CONFIG_DIR/settings.toml"
+export NUMBA_CACHE_DIR="\${NUMBA_CACHE_DIR:-$USER_HOME/Library/Caches/numba}"
 cd "$PROJECT_DIR" || exit 1
 exec "$POETRY_PATH" run python3 auth-proxy.py \\
     --service $SERVICE \\
-    --frontend-port $FRONTEND_PORT \\
+    --auth-port $AUTH_PORT \\
     --backend-port $BACKEND_PORT
 SH
     sudo chmod 755 "$LAUNCHER_PATH"
@@ -161,6 +206,15 @@ sudo tee "$EMBED_BACKEND_LAUNCHER" > /dev/null << SH
 #!/bin/bash
 export HOME="$USER_HOME"
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$USER_HOME/.local/bin"
+ENV_FILE="$CONFIG_DIR/settings.env"
+if [ -f "\$ENV_FILE" ]; then
+    set -a
+    . "\$ENV_FILE"
+    set +a
+fi
+export MLX_BOX_ROOT="$PROJECT_DIR/.."
+export MLX_BOX_CONFIG="$CONFIG_DIR/settings.toml"
+export NUMBA_CACHE_DIR="\${NUMBA_CACHE_DIR:-$USER_HOME/Library/Caches/numba}"
 cd "$PROJECT_DIR" || exit 1
 exec "$POETRY_PATH" run python3 embed-server.py
 SH
@@ -174,6 +228,15 @@ sudo tee "$OCR_BACKEND_LAUNCHER" > /dev/null << SH
 #!/bin/bash
 export HOME="$USER_HOME"
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$USER_HOME/.local/bin"
+ENV_FILE="$CONFIG_DIR/settings.env"
+if [ -f "\$ENV_FILE" ]; then
+    set -a
+    . "\$ENV_FILE"
+    set +a
+fi
+export MLX_BOX_ROOT="$PROJECT_DIR/.."
+export MLX_BOX_CONFIG="$CONFIG_DIR/settings.toml"
+export NUMBA_CACHE_DIR="\${NUMBA_CACHE_DIR:-$USER_HOME/Library/Caches/numba}"
 cd "$PROJECT_DIR" || exit 1
 exec "$POETRY_PATH" run python3 ocr-server.py
 SH
@@ -181,32 +244,82 @@ sudo chmod 755 "$OCR_BACKEND_LAUNCHER"
 sudo chown root:wheel "$OCR_BACKEND_LAUNCHER"
 echo "  Created backend launcher: $OCR_BACKEND_LAUNCHER"
 
+# TTS backend launcher (voice env)
+TTS_BACKEND_LAUNCHER="/usr/local/bin/mlx-tts-backend-launcher.sh"
+sudo tee "$TTS_BACKEND_LAUNCHER" > /dev/null << SH
+#!/bin/bash
+export HOME="$USER_HOME"
+export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$USER_HOME/.local/bin"
+ENV_FILE="$CONFIG_DIR/settings.env"
+if [ -f "\$ENV_FILE" ]; then
+    set -a
+    . "\$ENV_FILE"
+    set +a
+fi
+export MLX_BOX_ROOT="$PROJECT_DIR/.."
+export MLX_BOX_CONFIG="$CONFIG_DIR/settings.toml"
+export NUMBA_CACHE_DIR="\${NUMBA_CACHE_DIR:-$USER_HOME/Library/Caches/numba}"
+cd "$VOICE_DIR" || exit 1
+exec "$POETRY_PATH" run python3 tts-server.py
+SH
+sudo chmod 755 "$TTS_BACKEND_LAUNCHER"
+sudo chown root:wheel "$TTS_BACKEND_LAUNCHER"
+echo "  Created backend launcher: $TTS_BACKEND_LAUNCHER"
+
+# Whisper backend launcher (voice env)
+WHISPER_BACKEND_LAUNCHER="/usr/local/bin/mlx-whisper-backend-launcher.sh"
+sudo tee "$WHISPER_BACKEND_LAUNCHER" > /dev/null << SH
+#!/bin/bash
+export HOME="$USER_HOME"
+export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$USER_HOME/.local/bin"
+ENV_FILE="$CONFIG_DIR/settings.env"
+if [ -f "\$ENV_FILE" ]; then
+    set -a
+    . "\$ENV_FILE"
+    set +a
+fi
+export MLX_BOX_ROOT="$PROJECT_DIR/.."
+export MLX_BOX_CONFIG="$CONFIG_DIR/settings.toml"
+export NUMBA_CACHE_DIR="\${NUMBA_CACHE_DIR:-$USER_HOME/Library/Caches/numba}"
+cd "$VOICE_DIR" || exit 1
+exec "$POETRY_PATH" run python3 whisper-server.py
+SH
+sudo chmod 755 "$WHISPER_BACKEND_LAUNCHER"
+sudo chown root:wheel "$WHISPER_BACKEND_LAUNCHER"
+echo "  Created backend launcher: $WHISPER_BACKEND_LAUNCHER"
+
 echo "🔧 Reading port configuration from settings.toml..."
 # Parse ports from settings.toml using Python via Poetry
 PARSE_CMD="import tomlkit; c = tomlkit.load(open('$CONFIG_DIR/settings.toml'))"
 
-read -r ROUTER_PORT ROUTER_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['router'].get('port', 8082), c['services']['router'].get('backend_port', 8092))\"")
+read -r ROUTER_PORT ROUTER_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['router'].get('port', 8080), c['services']['router'].get('backend_port', 8090))\"")
 
-read -r FAST_PORT FAST_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['fast'].get('port', 8080), c['services']['fast'].get('backend_port', 8090))\"")
+read -r FAST_PORT FAST_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['fast'].get('port', 8081), c['services']['fast'].get('backend_port', 8091))\"")
 
-read -r THINKING_PORT THINKING_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['thinking'].get('port', 8081), c['services']['thinking'].get('backend_port', 8091))\"")
+read -r THINKING_PORT THINKING_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['thinking'].get('port', 8083), c['services']['thinking'].get('backend_port', 8093))\"")
 
-read -r EMBEDDING_PORT EMBEDDING_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['embedding'].get('port', 8083), c['services']['embedding'].get('backend_port', 8093))\"")
+read -r EMBEDDING_PORT EMBEDDING_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['embedding'].get('port', 8084), c['services']['embedding'].get('backend_port', 8094))\"")
 
 read -r OCR_PORT OCR_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['ocr'].get('port', 8085), c['services']['ocr'].get('backend_port', 8095))\"")
+read -r TTS_PORT TTS_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['tts'].get('port', 8086), c['services']['tts'].get('backend_port', 8096))\"")
+read -r WHISPER_PORT WHISPER_BACKEND < <(run_as_user bash -lc "cd '$PROJECT_DIR' && '$POETRY_PATH' run python3 -c \"$PARSE_CMD; print(c['services']['whisper'].get('port', 8087), c['services']['whisper'].get('backend_port', 8097))\"")
 
-echo "  Router: frontend=$ROUTER_PORT, backend=$ROUTER_BACKEND"
-echo "  Fast: frontend=$FAST_PORT, backend=$FAST_BACKEND"
-echo "  Thinking: frontend=$THINKING_PORT, backend=$THINKING_BACKEND"
-echo "  Embedding: frontend=$EMBEDDING_PORT, backend=$EMBEDDING_BACKEND"
-echo "  OCR: frontend=$OCR_PORT, backend=$OCR_BACKEND"
+echo "  Router: auth=$ROUTER_PORT, backend=$ROUTER_BACKEND"
+echo "  Fast: auth=$FAST_PORT, backend=$FAST_BACKEND"
+echo "  Thinking: auth=$THINKING_PORT, backend=$THINKING_BACKEND"
+echo "  Embedding: auth=$EMBEDDING_PORT, backend=$EMBEDDING_BACKEND"
+echo "  OCR: auth=$OCR_PORT, backend=$OCR_BACKEND"
+echo "  TTS: auth=$TTS_PORT, backend=$TTS_BACKEND"
+echo "  Whisper: auth=$WHISPER_PORT, backend=$WHISPER_BACKEND"
 
-echo "🔧 Creating Frontend Auth Proxy Launchers..."
-create_frontend_launcher "router" $ROUTER_PORT $ROUTER_BACKEND
-create_frontend_launcher "fast" $FAST_PORT $FAST_BACKEND
-create_frontend_launcher "thinking" $THINKING_PORT $THINKING_BACKEND
-create_frontend_launcher "embedding" $EMBEDDING_PORT $EMBEDDING_BACKEND
-create_frontend_launcher "ocr" $OCR_PORT $OCR_BACKEND
+echo "🔧 Creating Auth Proxy Launchers..."
+create_auth_launcher "router" $ROUTER_PORT $ROUTER_BACKEND
+create_auth_launcher "fast" $FAST_PORT $FAST_BACKEND
+create_auth_launcher "thinking" $THINKING_PORT $THINKING_BACKEND
+create_auth_launcher "embedding" $EMBEDDING_PORT $EMBEDDING_BACKEND
+create_auth_launcher "ocr" $OCR_PORT $OCR_BACKEND
+create_auth_launcher "tts" $TTS_PORT $TTS_BACKEND
+create_auth_launcher "whisper" $WHISPER_PORT $WHISPER_BACKEND
 
 # Helper function to create Backend MLX Service Plists
 create_backend_plist() {
@@ -260,8 +373,8 @@ create_backend_plist() {
 EOF
 }
 
-# Helper function to create Frontend Auth Proxy Plists
-create_frontend_plist() {
+# Helper function to create Auth Proxy Plists
+create_auth_plist() {
     local NAME=$1
     local PLIST_NAME="com.mlx-box.${NAME}"
     local LAUNCHER_PATH="/usr/local/bin/mlx-${NAME}-auth-launcher.sh"
@@ -318,13 +431,17 @@ create_backend_plist "fast"
 create_backend_plist "thinking"
 create_backend_plist "embedding"
 create_backend_plist "ocr"
+create_backend_plist "tts"
+create_backend_plist "whisper"
 
-echo "📝 Creating Frontend Auth Proxy Plists..."
-create_frontend_plist "router"
-create_frontend_plist "fast"
-create_frontend_plist "thinking"
-create_frontend_plist "embedding"
-create_frontend_plist "ocr"
+echo "📝 Creating Auth Proxy Plists..."
+create_auth_plist "router"
+create_auth_plist "fast"
+create_auth_plist "thinking"
+create_auth_plist "embedding"
+create_auth_plist "ocr"
+create_auth_plist "tts"
+create_auth_plist "whisper"
 
 # Permissions
 chmod 644 /Library/LaunchDaemons/com.mlx-box.*.plist
@@ -356,12 +473,20 @@ launchctl bootout system /Library/LaunchDaemons/com.mlx-box.embedding-backend.pl
 launchctl bootout system /Library/LaunchDaemons/com.mlx-box.embedding.plist 2>/dev/null || true
 launchctl bootout system /Library/LaunchDaemons/com.mlx-box.ocr-backend.plist 2>/dev/null || true
 launchctl bootout system /Library/LaunchDaemons/com.mlx-box.ocr.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.mlx-box.tts-backend.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.mlx-box.tts.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.mlx-box.whisper-backend.plist 2>/dev/null || true
+launchctl bootout system /Library/LaunchDaemons/com.mlx-box.whisper.plist 2>/dev/null || true
 
 # Start Backend services first (they must be running before auth proxies)
 echo "🚀 Starting Backend MLX Services..."
 launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.embedding-backend.plist
 sleep 2
 launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.ocr-backend.plist
+sleep 2
+launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.tts-backend.plist
+sleep 2
+launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.whisper-backend.plist
 sleep 2
 launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.router-backend.plist
 sleep 2
@@ -373,11 +498,15 @@ launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.thinking-backend.p
 echo "⏳ Waiting for backend services to initialize..."
 sleep 5
 
-# Start Frontend auth proxies
-echo "🚀 Starting Frontend Auth Proxy Services..."
+# Start Auth proxies
+echo "🚀 Starting Auth Proxy Services..."
 launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.embedding.plist
 sleep 1
 launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.ocr.plist
+sleep 1
+launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.tts.plist
+sleep 1
+launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.whisper.plist
 sleep 1
 launchctl bootstrap system /Library/LaunchDaemons/com.mlx-box.router.plist
 sleep 1
@@ -392,8 +521,8 @@ launchctl list | grep com.mlx-box || true
 
 echo ""
 echo "🔐 Auth Proxy Architecture:"
-echo "  Frontend (auth): router=$ROUTER_PORT, fast=$FAST_PORT, thinking=$THINKING_PORT, embedding=$EMBEDDING_PORT, ocr=$OCR_PORT"
-echo "  Backend (MLX):   router=$ROUTER_BACKEND, fast=$FAST_BACKEND, thinking=$THINKING_BACKEND, embedding=$EMBEDDING_BACKEND, ocr=$OCR_BACKEND"
+echo "  Auth proxy: router=$ROUTER_PORT, fast=$FAST_PORT, thinking=$THINKING_PORT, embedding=$EMBEDDING_PORT, ocr=$OCR_PORT, tts=$TTS_PORT, whisper=$WHISPER_PORT"
+echo "  Backend (MLX): router=$ROUTER_BACKEND, fast=$FAST_BACKEND, thinking=$THINKING_BACKEND, embedding=$EMBEDDING_BACKEND, ocr=$OCR_BACKEND, tts=$TTS_BACKEND, whisper=$WHISPER_BACKEND"
 echo ""
 echo "Check logs to verify authentication is enabled:"
 echo "  tail ~/Library/Logs/com.mlx-box.fast/stderr.log"

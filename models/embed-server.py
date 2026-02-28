@@ -46,7 +46,7 @@ server_config = config.get("server", {})
 model = None
 model_name = embed_config.get("model")
 # Use backend_port if available (for auth proxy setup), otherwise use port
-port = embed_config.get("backend_port") or embed_config.get("port", 8083)
+port = embed_config.get("backend_port") or embed_config.get("port", 8084)
 batch_size = embed_config.get("batch_size", 64)
 max_seq_length = embed_config.get("max_seq_length", 1024)
 use_quantization = embed_config.get("quantization", True)  # int8 by default

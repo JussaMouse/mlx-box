@@ -11,6 +11,40 @@ mkdir -p "${REPORT_DIR}"
 
 BREW_PREFIX=$(brew --prefix 2>/dev/null || echo "/opt/homebrew")
 DOMAIN_NAME=$(grep -E '^DOMAIN_NAME=' "${PROJECT_DIR}/config/settings.env" 2>/dev/null | cut -d= -f2 | tr -d '"')
+CONFIG_TOML="${PROJECT_DIR}/config/settings.toml"
+
+if [ -f "$CONFIG_TOML" ]; then
+  read -r ROUTER_PORT FAST_PORT THINKING_PORT EMBEDDING_PORT OCR_PORT TTS_PORT WHISPER_PORT < <(
+    python3 - <<'PY'
+import tomllib
+from pathlib import Path
+
+cfg = tomllib.loads(Path("config/settings.toml").read_text())
+services = cfg.get("services", {})
+
+def port(name, default):
+    return services.get(name, {}).get("port", default)
+
+print(
+    port("router", 8080),
+    port("fast", 8081),
+    port("thinking", 8083),
+    port("embedding", 8084),
+    port("ocr", 8085),
+    port("tts", 8086),
+    port("whisper", 8087),
+)
+PY
+  )
+else
+  ROUTER_PORT=8080
+  FAST_PORT=8081
+  THINKING_PORT=8083
+  EMBEDDING_PORT=8084
+  OCR_PORT=8085
+  TTS_PORT=8086
+  WHISPER_PORT=8087
+fi
 
 exec >"${REPORT_FILE}" 2>&1
 
@@ -42,12 +76,13 @@ sudo launchctl list | egrep 'com\.local\.|com\.mlx-box\.|homebrew\.mxcl\.nginx' 
 
 echo
 echo "== Chat / Embed quick checks =="
-echo "Chat models:"; curl -s http://127.0.0.1:8080/v1/models || true; echo
-echo "Embed models:"; curl -s http://127.0.0.1:8081/v1/models || true; echo
-
-echo
-echo "== Frontend =="
-curl -s -I http://127.0.0.1:8000 || true
+echo "Router models:"; curl -s "http://127.0.0.1:${ROUTER_PORT}/v1/models" || true; echo
+echo "Fast models:"; curl -s "http://127.0.0.1:${FAST_PORT}/v1/models" || true; echo
+echo "Thinking models:"; curl -s "http://127.0.0.1:${THINKING_PORT}/v1/models" || true; echo
+echo "Embed models:"; curl -s "http://127.0.0.1:${EMBEDDING_PORT}/v1/models" || true; echo
+echo "OCR models:"; curl -s "http://127.0.0.1:${OCR_PORT}/v1/models" || true; echo
+echo "TTS models:"; curl -s "http://127.0.0.1:${TTS_PORT}/v1/models" || true; echo
+echo "Whisper models:"; curl -s "http://127.0.0.1:${WHISPER_PORT}/v1/models" || true; echo
 
 echo
 echo "== Nginx =="
@@ -68,12 +103,14 @@ echo "States (top 10):"; sudo pfctl -ss | head -n 10 || true
 
 echo
 echo "== Logs (tails) =="
-echo "Chat stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.local.mlx-chat-server/stderr.log" 2>/dev/null || true; echo
-echo "Embed stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.local.embed-server/stderr.log" 2>/dev/null || true; echo
-echo "Frontend stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.frontend-server/stderr.log" 2>/dev/null || true; echo
+echo "Fast stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.fast/stderr.log" 2>/dev/null || true; echo
+echo "Thinking stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.thinking/stderr.log" 2>/dev/null || true; echo
+echo "Embedding stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.embedding/stderr.log" 2>/dev/null || true; echo
+echo "OCR stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.ocr/stderr.log" 2>/dev/null || true; echo
+echo "TTS stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.tts/stderr.log" 2>/dev/null || true; echo
+echo "Whisper stderr (last 50):"; tail -n 50 "${HOME}/Library/Logs/com.mlx-box.whisper/stderr.log" 2>/dev/null || true; echo
 echo "nginx error (last 50):"; tail -n 50 "${BREW_PREFIX}/var/log/nginx/error.log" 2>/dev/null || true; echo
 
 echo "==== End Report (${REPORT_FILE}) ===="
 
 echo "Saved report to: ${REPORT_FILE}" 1>&2
-

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Restart all MLX-Box services
-# This restarts both backend MLX servers and frontend auth proxies
+# This restarts both backend MLX servers and auth proxies
 
 set -e
 
@@ -15,7 +15,7 @@ echo -e "${BLUE}║           Restarting All MLX-Box Services                  �
 echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# List of all services (backend + frontend pairs)
+# List of all services (backend + auth proxy pairs)
 SERVICES=(
     "com.mlx-box.router-backend"
     "com.mlx-box.router"
@@ -27,7 +27,10 @@ SERVICES=(
     "com.mlx-box.embedding"
     "com.mlx-box.ocr-backend"
     "com.mlx-box.ocr"
-    "com.mlx-box.frontend-server"
+    "com.mlx-box.tts-backend"
+    "com.mlx-box.tts"
+    "com.mlx-box.whisper-backend"
+    "com.mlx-box.whisper"
 )
 
 echo -e "${YELLOW}Restarting ${#SERVICES[@]} services...${NC}"

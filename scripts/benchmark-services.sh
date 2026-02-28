@@ -24,6 +24,27 @@ if [ -z "$API_KEY" ]; then
     exit 1
 fi
 
+# Extract ports from config
+read -r ROUTER_PORT FAST_PORT THINKING_PORT EMBEDDING_PORT < <(
+python3 - <<'PY'
+import tomllib
+from pathlib import Path
+
+cfg = tomllib.loads(Path("config/settings.toml").read_text())
+services = cfg.get("services", {})
+
+def port(name, default):
+    return services.get(name, {}).get("port", default)
+
+print(
+    port("router", 8080),
+    port("fast", 8081),
+    port("thinking", 8083),
+    port("embedding", 8084),
+)
+PY
+)
+
 echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║         MLX Service Benchmark - Performance Test          ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
@@ -33,8 +54,9 @@ echo ""
 benchmark_service() {
     local name="$1"
     local port="$2"
-    local prompt="$3"
-    local max_tokens="$4"
+    local model_id="$3"
+    local prompt="$4"
+    local max_tokens="$5"
 
     echo -e "${YELLOW}Testing ${name} service (port ${port})...${NC}"
 
@@ -52,7 +74,7 @@ benchmark_service() {
         -H "Authorization: Bearer ${API_KEY}" \
         -H "Content-Type: application/json" \
         -d "{
-            \"model\": \"qwen3\",
+            \"model\": \"${model_id}\",
             \"messages\": [{\"role\": \"user\", \"content\": \"${prompt}\"}],
             \"max_tokens\": ${max_tokens},
             \"stream\": false
@@ -86,6 +108,25 @@ benchmark_service() {
     echo "${name},${duration_formatted},${completion_tokens},${tokens_per_sec}" >> /tmp/mlx_benchmark_results.txt
 }
 
+# Helper: fetch model id from /v1/models (fallback to provided)
+get_model_id() {
+    local port="$1"
+    local fallback="$2"
+    local response
+    response=$(curl -s "http://127.0.0.1:${port}/v1/models" -H "Authorization: Bearer ${API_KEY}")
+    local model
+    model=$(echo "$response" | jq -r '.data[0].id // empty' 2>/dev/null)
+    if [ -n "$model" ] && [ "$model" != "null" ]; then
+        echo "$model"
+    else
+        echo "$fallback"
+    fi
+}
+
+ROUTER_MODEL=$(get_model_id "$ROUTER_PORT" "router")
+FAST_MODEL=$(get_model_id "$FAST_PORT" "fast")
+THINKING_MODEL=$(get_model_id "$THINKING_PORT" "thinking")
+
 # Initialize results file
 rm -f /tmp/mlx_benchmark_results.txt
 echo "service,duration,tokens,tok_per_sec" > /tmp/mlx_benchmark_results.txt
@@ -94,26 +135,26 @@ echo "service,duration,tokens,tok_per_sec" > /tmp/mlx_benchmark_results.txt
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}1. Router Service (Classification)${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
-benchmark_service "Router" 8082 "Classify this request: What is 2+2?" 50
+benchmark_service "Router" "${ROUTER_PORT}" "${ROUTER_MODEL}" "Classify this request: What is 2+2?" 50
 
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}2. Fast Service (General Chat)${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
-benchmark_service "Fast" 8080 "Write a 200 word paragraph about artificial intelligence." 300
+benchmark_service "Fast" "${FAST_PORT}" "${FAST_MODEL}" "Write a 200 word paragraph about artificial intelligence." 300
 
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}3. Thinking Service (Reasoning)${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
-benchmark_service "Thinking" 8081 "Solve this step by step: If a train travels 120 km in 2 hours, what is its average speed?" 500
+benchmark_service "Thinking" "${THINKING_PORT}" "${THINKING_MODEL}" "Solve this step by step: If a train travels 120 km in 2 hours, what is its average speed?" 500
 
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}4. Embedding Service${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 
-echo -e "${YELLOW}Testing Embedding service (port 8083)...${NC}"
+echo -e "${YELLOW}Testing Embedding service (port ${EMBEDDING_PORT})...${NC}"
 start_time=$(date +%s.%N)
 
-embed_response=$(curl -s "http://127.0.0.1:8083/v1/embeddings" \
+embed_response=$(curl -s "http://127.0.0.1:${EMBEDDING_PORT}/v1/embeddings" \
     -H "Authorization: Bearer ${API_KEY}" \
     -H "Content-Type: application/json" \
     -d '{

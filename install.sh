@@ -64,6 +64,16 @@ fi
 source "${PROJECT_DIR}/config/settings.env"
 success "Configuration file found and loaded."
 
+# --- Port Defaults (in case settings.env is missing new vars) ---
+ROUTER_PORT="${ROUTER_PORT:-8080}"
+FAST_PORT="${FAST_PORT:-${CHAT_PORT:-8081}}"
+THINKING_PORT="${THINKING_PORT:-8083}"
+EMBED_PORT="${EMBED_PORT:-8084}"
+OCR_PORT="${OCR_PORT:-8085}"
+TTS_PORT="${TTS_PORT:-8086}"
+WHISPER_PORT="${WHISPER_PORT:-8087}"
+
+
 # 2. Check for sudo privileges upfront.
 log "This script requires sudo privileges to install system services."
 sudo -v
@@ -185,9 +195,7 @@ success "Temporary Nginx configuration has been generated."
 
 # 3. Install and start services (Nginx is started here)
 chmod +x "${PROJECT_DIR}/models/startup-services-install.sh" 2>/dev/null || true
-chmod +x "${PROJECT_DIR}/frontend/install-service.sh" 2>/dev/null || true
 (cd "${PROJECT_DIR}/models" && sudo ./startup-services-install.sh)
-(cd "${PROJECT_DIR}/frontend" && sudo ./install-service.sh)
 success "Application services installed."
 
 chmod +x "${PROJECT_DIR}/firewall/install-firewall.sh" 2>/dev/null || true
@@ -274,13 +282,45 @@ http {
         $( [ -n "${ALLOWED_IPS}" ] && echo "deny all;" )
 
         location / {
-            proxy_pass http://127.0.0.1:${FRONTEND_PORT};
-            proxy_set_header Host \$host;
-            proxy_set_header X-Real-IP \$remote_addr;
+            return 404;
         }
 
+        # Core OpenAI-compatible endpoints
+        location = /v1/embeddings {
+            proxy_pass http://127.0.0.1:${EMBED_PORT};
+        }
+
+        location = /v1/audio/speech {
+            proxy_pass http://127.0.0.1:${TTS_PORT};
+        }
+
+        location = /v1/audio/transcriptions {
+            proxy_pass http://127.0.0.1:${WHISPER_PORT};
+        }
+
+        # Default chat traffic goes to the Fast tier
         location /v1/ {
-            proxy_pass http://127.0.0.1:${CHAT_PORT};
+            proxy_pass http://127.0.0.1:${FAST_PORT};
+        }
+
+        # Explicit tier/service prefixes for direct access
+        location /router/ {
+            proxy_pass http://127.0.0.1:${ROUTER_PORT};
+        }
+        location /thinking/ {
+            proxy_pass http://127.0.0.1:${THINKING_PORT};
+        }
+        location /embedding/ {
+            proxy_pass http://127.0.0.1:${EMBED_PORT};
+        }
+        location /ocr/ {
+            proxy_pass http://127.0.0.1:${OCR_PORT};
+        }
+        location /tts/ {
+            proxy_pass http://127.0.0.1:${TTS_PORT};
+        }
+        location /whisper/ {
+            proxy_pass http://127.0.0.1:${WHISPER_PORT};
         }
     }
 }

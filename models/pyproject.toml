@@ -32,4 +32,3 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry.group.mlx.dependencies]
 mlx = ">=0.26.1"
 mlx-lm = ">=0.25.2"
-

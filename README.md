@@ -21,10 +21,10 @@ chmod +x install.sh
 ```
 4) Verify:
 ```sh
-sudo launchctl list | egrep 'nginx|mlx|frontend'
+sudo launchctl list | egrep 'nginx|mlx'
 BREW_PREFIX=$(brew --prefix)
 sudo nginx -T -c "$BREW_PREFIX/etc/nginx/nginx.conf" | egrep -n 'listen 443|allow |deny all'
-curl -I http://127.0.0.1:80
+curl -I http://localhost:80
 curl -I https://YOUR.DOMAIN --resolve YOUR.DOMAIN:443:$(curl -s ifconfig.me)
 ```
 5) Update Models (optional):
@@ -32,25 +32,51 @@ curl -I https://YOUR.DOMAIN --resolve YOUR.DOMAIN:443:$(curl -s ifconfig.me)
 chmod +x update-model.sh
 # Update specific tiers
 ./update-model.sh router mlx-community/Qwen3-0.6B-4bit
-./update-model.sh fast mlx-community/Qwen3-30B-A3B-4bit
+./update-model.sh fast mlx-community/Qwen3.5-35B-A3B-4bit
+```
+
+## Handy Shell Commands
+```sh
+# Monitor network traffic (macOS)
+netstat -I en0 -w 1 | awk 'NR<=2{next} {printf "\rDown:%.2f MB  Up:%.2f MB", $3/1048576, $6/1048576; fflush()}'
+
+# Show cached models with sizes (largest first)
+for d in ~/.cache/huggingface/hub/models--*; do [ -d "$d" ] && du -sh "$d"; done | awk '{gsub(".*/models--","",$2); gsub(/--/,"/",$2); print $1"\t"$2}' | sort -hr
+
+# Monitor active model downloads (Hugging Face cache)
+while true; do \
+  date; \
+  find ~/.cache/huggingface/hub/models--* -path "*/blobs/*" -type f \( -name "*.incomplete" -o -name "*.lock" \) -exec ls -lh {} \; 2>/dev/null; \
+  echo "Recent blob writes (last 2 min):"; \
+  find ~/.cache/huggingface/hub/models--* -path "*/blobs/*" -type f -mmin -2 -print0 2>/dev/null | xargs -0 ls -lh 2>/dev/null; \
+  sleep 2; \
+done
+
+# Restart all services
+scripts/restart-all-services.sh
+
+# Smoke-test all services
+scripts/test-services.sh
 ```
 
 ### What gets installed
 - Nginx (reverse proxy, SSL via certbot webroot, optional allowlist/basic auth)
 - pf firewall (opens only SSH, 80, 443)
-- **5 AI Services** (LaunchDaemons):
-  - **Router Service** (Port 8082): Tiny, fast model for request classification
-  - **Fast Service** (Port 8080): General purpose, low-latency model.
+- **7 AI Services** (LaunchDaemons):
+  - **Router Service** (Port 8080): Tiny, fast model for request classification
+  - **Fast Service** (Port 8081): General purpose, low-latency model.
     - *Optimization:* Uses a custom monkey-patched server (`patched_mlx_server.py`) to enforce **8-bit KV cache quantization**. This reduces context memory usage by ~50%, allowing multiple 30B models to fit comfortably in RAM.
-  - **Thinking Service** (Port 8081): High-reasoning model for complex tasks.
+  - **Thinking Service** (Port 8083): High-reasoning model for complex tasks.
     - *Optimization:* Also uses 8-bit KV cache quantization.
-  - **Embedding Service** (Port 8083): High-dimensional text embeddings
+  - **Embedding Service** (Port 8084): High-dimensional text embeddings
   - **OCR Service** (Port 8085): OpenAI-compatible **vision** chat endpoint for OCR (olmOCR)
-- Static frontend as LaunchAgent/Daemon
+  - **TTS Service** (Port 8086): OpenAI-compatible text-to-speech
+  - **Whisper Service** (Port 8087): OpenAI-compatible speech-to-text (STT)
 
 ### Performance Note: KV Cache Quantization
 By default, the `mlx-lm` server wrapper does not expose an option for Key-Value (KV) cache quantization. To maximize efficiency on the Mac Studio (especially when running multiple heavy models), we use a wrapper script (`models/patched_mlx_server.py`) that monkey-patches `mlx_lm.load()` to force `kv_bits=8`. This significantly reduces the memory footprint of long contexts without noticeable quality loss.
 - Poetry-managed Python env in `models/`
+- Voice services live in `models/voice/` with a separate Poetry env to avoid dependency conflicts (notably `transformers` versions required by `qwen-tts` vs `mlx-openai-server`).
 - System report saved under `reports/` after successful install
 
 ---
@@ -66,7 +92,7 @@ This project implements a multi-model architecture designed to balance speed, co
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                   TIER 0: Router Service (Port 8082)            │
+│                   TIER 0: Router Service (Port 8080)            │
 │              Qwen3-0.6B-4bit (~300+ tok/s)                       │
 │                                                                  │
 │  Classifies into: TRIVIAL | SIMPLE | COMPLEX | REASONING         │
@@ -77,10 +103,9 @@ This project implements a multi-model architecture designed to balance speed, co
            ▼                  ▼                  ▼
 ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
 │   TIER 1: Fast  │ │  TIER 2: Fast   │ │ TIER 3: Thinking│
-│  (Port 8080)    │ │  (Port 8080)    │ │  (Port 8081)    │
+│  (Port 8081)    │ │  (Port 8081)    │ │  (Port 8083)    │
 │                 │ │                 │ │                 │
-│ Qwen3-30B-A3B   │ │ Qwen3-30B-A3B   │ │ Qwen3-30B-A3B   │
-│    (base)       │ │    (base)       │ │  Thinking-2507  │
+│ Qwen3.5-35B-A3B │ │ Qwen3.5-35B-A3B │ │ Qwen3.5-122B-A10B│
 │                 │ │                 │ │                 │
 │  ~100+ tok/s    │ │  ~100+ tok/s    │ │  ~50-80 tok/s   │
 └─────────────────┘ └─────────────────┘ └─────────────────┘
@@ -88,7 +113,7 @@ This project implements a multi-model architecture designed to balance speed, co
 
 -   **Outer Wall (Firewall):** The `pf` firewall is the first line of defense. It blocks all incoming traffic by default, only allowing connections on the standard web ports (`80/443`) and a custom SSH port.
 -   **Gatekeeper (Nginx):** Nginx is the only service exposed to the internet. It terminates SSL (HTTPS) and acts as a secure reverse proxy, routing traffic to the appropriate internal application.
--   **Protected Core (Application Services):** The AI models and web frontend are configured to listen only on `localhost` (`127.0.0.1`), making them completely inaccessible from the outside world. They can only be reached via the Nginx gatekeeper.
+-   **Protected Core (Application Services):** The AI services are configured to listen only on `localhost` (loopback), making them completely inaccessible from the outside world. They can only be reached via the Nginx gatekeeper.
 -   **Configuration as Code:** All server setup is defined in version-controlled scripts that read from a private, user-managed `config/settings.toml` file.
 
 ---
@@ -125,7 +150,7 @@ Before running the script, there are three required manual steps: setting up DNS
     To allow external traffic from the internet to reach your server, you must set up port forwarding on your router.
 
     -   **How to do it:**
-        1.  Find your server's **local IP address** (e.g., `192.168.1.xxx`) by running `ipconfig getifaddr en0` on the server.
+        1.  Find your server's **local IP address** (e.g., `<LAN_IP>`) by running `ipconfig getifaddr en0` on the server.
         2.  Log in to your router's administration web page.
         3.  Find the "Port Forwarding" section (it may be called "Virtual Servers" or similar).
         4.  Create the following three rules to forward traffic to your server's local IP:
@@ -192,16 +217,19 @@ This file uses a simple `KEY=VALUE` format and is used by the shell scripts (`in
 -   `DOMAIN_NAME`: **Required.** Your server's public domain name.
 -   `LETSENCRYPT_EMAIL`: **Required.** Your email for SSL certificate registration.
 -   `SSH_PORT`: The custom port for your SSH service.
--   `CHAT_PORT`, `EMBED_PORT`, `FRONTEND_PORT`: The internal `localhost` ports for the application services.
+-   `CHAT_PORT`: Default chat entrypoint (mapped to Fast tier).
+-   `ROUTER_PORT`, `FAST_PORT`, `THINKING_PORT`, `EMBED_PORT`, `OCR_PORT`, `TTS_PORT`, `WHISPER_PORT`: Internal `localhost` ports for each service.
 
 ### `settings.toml` (for the AI services)
 
 This file is used by the Python-based AI services (`chat-server.py`, `embed-server.py`) to select which models to load. It now supports multiple service tiers:
 
 -   `[services.router]`: Configuration for the lightweight router model (default: Qwen3-0.6B).
--   `[services.fast]`: Configuration for the standard fast model (default: Qwen3-30B-A3B).
--   `[services.thinking]`: Configuration for the advanced reasoning model (default: Qwen3-30B-A3B-Thinking).
+-   `[services.fast]`: Configuration for the standard fast model (default: Qwen3.5-35B-A3B).
+-   `[services.thinking]`: Configuration for the advanced reasoning model (default: Qwen3.5-122B-A10B).
 -   `[services.embedding]`: Configuration for the embedding model.
+-   `[services.tts]`: Configuration for the Qwen3-TTS service.
+-   `[services.whisper]`: Configuration for the Whisper STT service.
 
 ### Reasoning Filter (Hide Thinking Content)
 
@@ -256,8 +284,8 @@ presence_penalty = 0.0
 [services.fast]
 port = 8081
 backend_port = 8091
-model = "mlx-community/Qwen3-30B-A3B-4bit"
-max_tokens = 8192      # 2x increased for longer contexts
+model = "mlx-community/Qwen3.5-35B-A3B-4bit"
+max_tokens = 8192
 temperature = 0.6      # Balanced creativity
 top_p = 0.92
 frequency_penalty = 0.3
@@ -265,9 +293,9 @@ frequency_penalty = 0.3
 [services.thinking]
 port = 8083
 backend_port = 8093
-model = "mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit"
-max_tokens = 16384         # 2x increased for complex reasoning
-thinking_budget = 8192     # 2x increased thinking tokens
+model = "nightmedia/Qwen3.5-122B-A10B-Text-mxfp4-mlx"
+max_tokens = 32768
+thinking_budget = 16384
 temperature = 0.2          # Low temp for precise reasoning
 top_p = 0.9
 frequency_penalty = 0.0
@@ -344,7 +372,7 @@ quantization = true      # Quantize outputs to int8 (75% storage savings, 4-8x f
 
 ```bash
 # Embed documents with "passage" prefix (default)
-curl http://127.0.0.1:8084/v1/embeddings \
+curl http://localhost:8084/v1/embeddings \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -353,7 +381,7 @@ curl http://127.0.0.1:8084/v1/embeddings \
   }'
 
 # Embed search query with "query" prefix
-curl http://127.0.0.1:8084/v1/embeddings \
+curl http://localhost:8084/v1/embeddings \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -362,7 +390,7 @@ curl http://127.0.0.1:8084/v1/embeddings \
   }'
 
 # Batch embed multiple texts
-curl http://127.0.0.1:8084/v1/embeddings \
+curl http://localhost:8084/v1/embeddings \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -383,7 +411,7 @@ curl http://127.0.0.1:8084/v1/embeddings \
 **Health Check:**
 
 ```bash
-curl http://127.0.0.1:8084/health
+curl http://localhost:8084/health
 ```
 
 Returns:
@@ -443,13 +471,19 @@ chmod +x update-model.sh
 ./update-model.sh router mlx-community/Qwen3-0.6B-4bit
 
 # Update the Fast model
-./update-model.sh fast mlx-community/Qwen3-30B-A3B-4bit
+./update-model.sh fast mlx-community/Qwen3.5-35B-A3B-4bit
 
 # Update the Thinking model
-./update-model.sh thinking mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit
+./update-model.sh thinking nightmedia/Qwen3.5-122B-A10B-Text-mxfp4-mlx
 
 # Update the OCR (vision) model
 ./update-model.sh ocr mlx-community/olmOCR-2-7B-1025-mlx-8bit
+
+# Update the TTS model
+./update-model.sh tts Qwen3-TTS-12Hz-0.6B-CustomVoice
+
+# Update the Whisper model
+./update-model.sh whisper small.en
 ```
 
 The script will handle the rest. The server will download the new model (which can take some time) and load it.
@@ -460,7 +494,7 @@ The script will handle the rest. The server will download the new model (which c
 
 This project includes an OCR/VLM service designed specifically for screenshots, receipts, and scanned documents.
 
-- **Service**: `com.local.ocr-server`
+- **Service**: `com.mlx-box.ocr`
 - **Port**: `8085`
 - **API**: OpenAI-compatible `POST /v1/chat/completions`
 - **Model**: `mlx-community/olmOCR-2-7B-1025-mlx-8bit`
@@ -498,6 +532,43 @@ cd models
 poetry install --no-root
 ```
 
+---
+
+## Voice Stack (TTS + Whisper)
+
+### TTS (Text-to-Speech)
+
+**Env:** `models/voice` (separate Poetry env to avoid dependency conflicts)
+
+**Endpoint:** `POST /v1/audio/speech`  
+**Service:** `com.mlx-box.tts`  
+**Port:** `8086`
+
+```bash
+curl -s http://localhost:8086/v1/audio/speech \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "tts",
+    "input": "Hello from MLX-Box TTS."
+  }' --output tts.wav
+```
+
+### Whisper (Speech-to-Text)
+
+**Env:** `models/voice` (separate Poetry env to avoid dependency conflicts)
+
+**Endpoint:** `POST /v1/audio/transcriptions`  
+**Service:** `com.mlx-box.whisper`  
+**Port:** `8087`
+
+```bash
+curl -s http://localhost:8087/v1/audio/transcriptions \
+  -H "Authorization: Bearer your-api-key" \
+  -F "file=@/path/to/audio.wav" \
+  -F "model=whisper"
+```
+
 2) Ensure the service is installed/bootstrapped (or reinstall all services):
 
 ```sh
@@ -507,7 +578,7 @@ sudo ./models/startup-services-install.sh
 3) Confirm it’s up:
 
 ```sh
-curl http://127.0.0.1:8085/v1/models
+curl http://localhost:8085/v1/models
 ```
 
 4) Send a real OCR request (base64 `data:` URL):
@@ -522,7 +593,7 @@ with open(img, "rb") as f:
 PY
 )
 
-curl -s http://127.0.0.1:8085/v1/chat/completions \
+curl -s http://localhost:8085/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d "{
     \"model\": \"olmocr\",
@@ -615,7 +686,7 @@ You can restrict HTTPS (port 443) to specific client IPs using the `ALLOWED_IPS`
 
 1. Set the allowlist in `config/settings.env` (comma-separated, no spaces):
 ```sh
-echo 'ALLOWED_IPS=1.2.3.4,5.6.7.8' >> config/settings.env
+echo 'ALLOWED_IPS=203.0.113.10,198.51.100.10' >> config/settings.env
 ```
 
 2. Re-run the installer (safe to re-run), or reload nginx after regeneration:
@@ -686,7 +757,7 @@ After the script completes, check that the services are running and accessible.
 sudo launchctl list | grep nginx
 
 # Check the application logs for any errors
-tail -f ~/Library/Logs/com.mlx-box.frontend-server/stderr.log
+tail -f ~/Library/Logs/com.local.mlx-chat-server/stderr.log
 ```
 
 ---
@@ -766,17 +837,19 @@ openssl rand -hex 32
 
 | Service | Frontend Port (auth) | Backend Port (MLX) |
 |---------|---------------------|-------------------|
-| Router  | 8082               | 8092              |
-| Fast    | 8080               | 8090              |
-| Thinking| 8081               | 8091              |
-| Embedding| 8083              | 8093              |
+| Router  | 8080               | 8090              |
+| Fast    | 8081               | 8091              |
+| Thinking| 8083               | 8093              |
+| Embedding| 8084              | 8094              |
 | OCR     | 8085               | 8095              |
+| TTS     | 8086               | 8096              |
+| Whisper | 8087               | 8097              |
 
 ### Client Configuration
 
 Clients must send the API key in the Authorization header:
 ```bash
-curl http://127.0.0.1:8080/v1/models \
+curl http://localhost:8081/v1/models \
   -H "Authorization: Bearer your-secret-api-key-here"
 ```
 
@@ -785,7 +858,7 @@ For OpenAI-compatible clients:
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://127.0.0.1:8080/v1",
+    base_url="http://localhost:8081/v1",
     api_key="your-secret-api-key-here"
 )
 ```
@@ -816,15 +889,17 @@ sudo launchctl kickstart -k system/com.mlx-box.fast
 sudo launchctl kickstart -k system/com.mlx-box.thinking
 sudo launchctl kickstart -k system/com.mlx-box.embedding
 sudo launchctl kickstart -k system/com.mlx-box.ocr
+sudo launchctl kickstart -k system/com.mlx-box.tts
+sudo launchctl kickstart -k system/com.mlx-box.whisper
 ```
 
 Verify authentication is working:
 ```bash
 # Without key (should fail with 401)
-curl http://127.0.0.1:8080/v1/models
+curl http://localhost:8081/v1/models
 
 # With key (should succeed)
-curl http://127.0.0.1:8080/v1/models \
+curl http://localhost:8081/v1/models \
   -H "Authorization: Bearer your-key-here"
 ```
 
@@ -832,7 +907,7 @@ curl http://127.0.0.1:8080/v1/models \
 
 ## 8. Remote Access via SSH Tunnel
 
-Access MLX models from remote machines via SSH tunnels over Tailscale. The services remain bound to `127.0.0.1` (localhost only) - tunnels provide secure encrypted access without exposing ports.
+Access MLX models from remote machines via SSH tunnels over Tailscale. The services remain bound to `localhost` (loopback only) - tunnels provide secure encrypted access without exposing ports.
 
 ### Setup
 
@@ -841,28 +916,32 @@ Access MLX models from remote machines via SSH tunnels over Tailscale. The servi
 1. Get server's Tailscale IP:
    ```bash
    # On mlx-box server
-   tailscale ip -4  # e.g., 100.74.53.118
+   tailscale ip -4  # e.g., <TAILSCALE_IP>
    ```
 
 2. Create SSH tunnel (replace `<SSH_PORT>` from your `settings.env` and `<TAILSCALE_IP>`):
    ```bash
    ssh -p <SSH_PORT> \
-       -L 8080:127.0.0.1:8080 \
-       -L 8081:127.0.0.1:8081 \
-       -L 8082:127.0.0.1:8082 \
-       -L 8083:127.0.0.1:8083 \
-       -L 8085:127.0.0.1:8085 \
+       -L 8080:localhost:8080 \
+       -L 8081:localhost:8081 \
+       -L 8083:localhost:8083 \
+       -L 8084:localhost:8084 \
+       -L 8085:localhost:8085 \
+       -L 8086:localhost:8086 \
+       -L 8087:localhost:8087 \
        user@<TAILSCALE_IP>
    ```
 
-3. Test: `curl http://127.0.0.1:8080/v1/models`
+3. Test: `curl http://localhost:8081/v1/models`
 
 **Port mapping:**
-- 8080: Fast model (CHAT_PORT)
-- 8081: Thinking model
-- 8082: Router model
-- 8083: Embeddings (EMBED_PORT)
+- 8080: Router model
+- 8081: Fast model (CHAT_PORT)
+- 8083: Thinking model
+- 8084: Embeddings (EMBED_PORT)
 - 8085: OCR/Vision model
+- 8086: TTS
+- 8087: Whisper (STT)
 
 **For persistent tunnels**, add to `~/.ssh/config`:
 ```
@@ -870,11 +949,13 @@ Host mlx-box
     HostName <TAILSCALE_IP>
     Port <SSH_PORT>
     User <username>
-    LocalForward 8080 127.0.0.1:8080
-    LocalForward 8081 127.0.0.1:8081
-    LocalForward 8082 127.0.0.1:8082
-    LocalForward 8083 127.0.0.1:8083
-    LocalForward 8085 127.0.0.1:8085
+    LocalForward 8080 localhost:8080
+    LocalForward 8081 localhost:8081
+    LocalForward 8083 localhost:8083
+    LocalForward 8084 localhost:8084
+    LocalForward 8085 localhost:8085
+    LocalForward 8086 localhost:8086
+    LocalForward 8087 localhost:8087
     ServerAliveInterval 60
 ```
 
@@ -919,8 +1000,6 @@ This section outlines a practical plan to centralize logs, add lightweight 1-min
 - Application/API:
   - Python services (`models/chat-server.py`, `models/embed-server.py`): structured stdout/stderr to `~/Library/Logs/com.local.{service}/` via `launchd`.
   - Nginx access/error logs: include client IP, time, status, and authenticated user if basic auth is enabled.
-- Frontend:
-  - `http-server` stderr/stdout already captured by `com.mlx-box.frontend-server` logs; keep directory listings disabled (`-d`).
 
 ### Access and auth logging
 - Enable Nginx `log_format` to capture: `$remote_addr`, `$remote_user`, `$time_local`, `$request`, `$status`, `$body_bytes_sent`, `$http_referer`, `$http_user_agent`.

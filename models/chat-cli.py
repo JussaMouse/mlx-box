@@ -6,12 +6,24 @@ Interactive Command-Line Chat for MLX Server
 import requests
 import json
 import sys
+from pathlib import Path
+import tomllib
 
-# --- Configuration ---
-HOST = "127.0.0.1"
-PORT = 8080
+def load_config():
+    config_path = Path(__file__).parent.parent / "config" / "settings.toml"
+    try:
+        return tomllib.loads(config_path.read_text())
+    except Exception:
+        return {}
+
+
+config = load_config()
+services = config.get("services", {})
+server = config.get("server", {})
+
+HOST = server.get("host", "127.0.0.1")
+PORT = services.get("fast", {}).get("port", 8081)
 SERVER_URL = f"http://{HOST}:{PORT}/v1"
-# --- End Configuration ---
 
 def get_model_name():
     """

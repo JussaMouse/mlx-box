@@ -17,6 +17,15 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="$PROJECT_DIR/config/settings.toml"
 
 API_KEY=$(grep -A 5 'api_keys = \[' "$CONFIG_FILE" | grep '"' | head -1 | cut -d'"' -f2)
+THINKING_PORT=$(python3 - <<'PY'
+import tomllib
+from pathlib import Path
+cfg = tomllib.loads(Path("config/settings.toml").read_text())
+services = cfg.get("services", {})
+print(services.get("thinking", {}).get("port", 8083))
+PY
+)
+THINKING_MODEL=$(curl -s "http://127.0.0.1:${THINKING_PORT}/v1/models" -H "Authorization: Bearer ${API_KEY}" | jq -r '.data[0].id // "thinking"')
 
 if [ -z "$API_KEY" ]; then
     echo -e "${RED}❌ Could not extract API key from config/settings.toml${NC}"
@@ -24,16 +33,19 @@ if [ -z "$API_KEY" ]; then
 fi
 
 echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║        Testing Thinking Tags Toggle (disable_thinking)     ║${NC}"
+echo -e "${BLUE}║        Testing Thinking Tags Filter (fast/thinking)        ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# Check if disable_thinking_tags is set in config
-THINKING_DISABLED=$(grep -A 10 '\[services.thinking\]' "$CONFIG_FILE" | grep 'disable_thinking_tags' | grep -v '^#' | grep 'true' || echo "")
+# Check if filter_reasoning or disable_thinking_tags is set in config
+FILTER_REASONING=$(grep -A 12 '\[services.thinking\]' "$CONFIG_FILE" | grep -E 'filter_reasoning' | grep -v '^#' | grep 'true' || echo "")
+THINKING_DISABLED=$(grep -A 12 '\[services.thinking\]' "$CONFIG_FILE" | grep -E 'disable_thinking_tags' | grep -v '^#' | grep 'true' || echo "")
 
-if [ -z "$THINKING_DISABLED" ]; then
-    echo -e "${YELLOW}⚠ disable_thinking_tags is NOT enabled in config${NC}"
-    echo "  To test the toggle, add this to config/settings.toml under [services.thinking]:"
+if [ -z "$FILTER_REASONING" ] && [ -z "$THINKING_DISABLED" ]; then
+    echo -e "${YELLOW}⚠ No reasoning filter enabled in config${NC}"
+    echo "  Add one of the following under [services.thinking]:"
+    echo "    filter_reasoning = true"
+    echo "    # or"
     echo "    disable_thinking_tags = true"
     echo ""
     echo "  Then restart the thinking service:"
@@ -41,7 +53,7 @@ if [ -z "$THINKING_DISABLED" ]; then
     echo ""
     exit 1
 else
-    echo -e "${GREEN}✓ disable_thinking_tags is enabled in config${NC}"
+    echo -e "${GREEN}✓ Reasoning filter is enabled in config${NC}"
     echo ""
 fi
 
@@ -53,11 +65,11 @@ echo "Prompt: \"$TEST_PROMPT\""
 echo ""
 
 # Make request
-response=$(curl -s http://127.0.0.1:8081/v1/chat/completions \
+response=$(curl -s "http://127.0.0.1:${THINKING_PORT}/v1/chat/completions" \
     -H "Authorization: Bearer ${API_KEY}" \
     -H "Content-Type: application/json" \
     -d "{
-        \"model\": \"qwen3\",
+        \"model\": \"${THINKING_MODEL}\",
         \"messages\": [{\"role\": \"user\", \"content\": \"$TEST_PROMPT\"}],
         \"max_tokens\": 500,
         \"stream\": false
@@ -83,8 +95,7 @@ if echo "$content" | grep -q '<think>'; then
     echo ""
     echo -e "${YELLOW}Possible causes:${NC}"
     echo "  1. mlx-lm version too old (need >= 0.30.6)"
-    echo "  2. Qwen3-Thinking-2507 model ignores enable_thinking=false"
-    echo "  3. Chat template not respecting the parameter"
+    echo "  2. Chat template not respecting the parameter"
     echo ""
     echo -e "${YELLOW}Recommended fix:${NC}"
     echo "  Implement streaming filter fallback to post-process responses"

@@ -41,10 +41,10 @@ api_keys = [
   # Tier 0: Router Service
   # Lightweight model for request classification and trivial queries
   [services.router]
-  port = 8082          # Frontend port (with auth)
-  backend_port = 8092  # Backend MLX server port (no auth)
+  port = 8080          # Frontend port (with auth)
+  backend_port = 8090  # Backend MLX server port (no auth)
   model = "mlx-community/Qwen3-0.6B-4bit"
-  max_tokens = 150     # OPTIMIZED: Increased from 100 for more detailed routing decisions
+  max_tokens = 100     # Router-only; keep short for classification
 
   # OPTIMIZATION: Model parameters for deterministic classification
   temperature = 0.1         # ✓ ACTIVE: Low temperature for consistent routing decisions
@@ -54,13 +54,11 @@ api_keys = [
 
   # Tier 1 & 2: Fast Service
   # General purpose, low-latency model for most queries and simple tools
-  # NOTE: This is a MoE (Mixture of Experts) model with 30.5B total params
-  #       but only 3.3B activated per token (11% activation rate)
   [services.fast]
-  port = 8080          # Frontend port (with auth)
-  backend_port = 8090  # Backend MLX server port (no auth)
-  model = "mlx-community/Qwen3-30B-A3B-4bit"
-  max_tokens = 16384   # OPTIMIZED: 2x increase from 8192 (128GB RAM has plenty of headroom)
+  port = 8081          # Frontend port (with auth)
+  backend_port = 8091  # Backend MLX server port (no auth)
+  model = "mlx-community/Qwen3.5-35B-A3B-4bit"
+  max_tokens = 8192
 
   # OPTIMIZATION: Model parameters for balanced conversation + tool use
   temperature = 0.6         # ✓ ACTIVE: Balanced creativity and coherence
@@ -69,23 +67,22 @@ api_keys = [
   presence_penalty = 0.0   # ✗ NOT USED: MLX server doesn't support presence penalty
 
   # Filter thinking tags/reasoning (recommended for clean responses)
-  # Qwen3-30B-A3B uses legacy <think>...</think> tags in content field
+  # Qwen3.5 models emit <think>...</think> blocks in content field
   filter_reasoning = true   # ✓ RECOMMENDED: Strip <think> tags from responses
+  thinking_budget = 0       # Disable extended thinking for fast tier
 
   # Tier 3: Thinking Service
   # High-reasoning model for complex tasks, coding, and planning
-  # NOTE: This is also a MoE model with 30.5B total, 3.3B active
   [services.thinking]
-  port = 8081          # Frontend port (with auth)
-  backend_port = 8091  # Backend MLX server port (no auth)
-  model = "mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit"
-  max_tokens = 32768       # OPTIMIZED: Maximum 32K context (128GB RAM can handle it)
-  thinking_budget = 16384  # OPTIMIZED: 2x increase from 8192 for complex reasoning chains
+  port = 8083          # Frontend port (with auth)
+  backend_port = 8093  # Backend MLX server port (no auth)
+  model = "nightmedia/Qwen3.5-122B-A10B-Text-mxfp4-mlx"
+  max_tokens = 32768
+  thinking_budget = 16384
 
   # OPTIMIZATION: Model parameters for precise reasoning
-  # Official Qwen3-Thinking-2507 recommendations from model card
-  temperature = 0.6         # ✓ ACTIVE: Optimal for reasoning exploration (was 0.2)
-  top_p = 0.95             # ✓ ACTIVE: Allows diverse reasoning paths (was 0.9)
+  temperature = 0.2         # ✓ ACTIVE: More deterministic for reasoning
+  top_p = 0.9              # ✓ ACTIVE: Standard nucleus sampling
   frequency_penalty = 0.0  # ✗ NOT USED: MLX server doesn't support repetition penalty
   presence_penalty = 0.0   # ✗ NOT USED: MLX server doesn't support presence penalty
 
@@ -100,7 +97,7 @@ api_keys = [
   # Option 2: Disable reasoning generation at model level
   # - Changes the PROMPT to instruct model not to generate thinking
   # - May reduce response quality (no reasoning to guide answers)
-  # - Qwen3-Thinking-2507 may ignore this (model fine-tuned for thinking)
+  # - Some models may ignore this (thinking is often baked into the checkpoint)
   # disable_thinking_tags = true  # Alternative: Requires mlx-lm >= 0.30.6
 
   # --- Embedding Service ---
@@ -108,12 +105,12 @@ api_keys = [
   # Configuration for the Embedding service.
   # Provides high-quality semantic embeddings for document search and similarity.
   [services.embedding]
-  port = 8083          # Frontend port (with auth)
-  backend_port = 8093  # Backend service port (no auth)
+  port = 8084          # Frontend port (with auth)
+  backend_port = 8094  # Backend service port (no auth)
   # The SentenceTransformer model to use for embeddings.
   model = "Qwen/Qwen3-Embedding-8B"
-  batch_size = 128     # OPTIMIZED: 2x increase from 64 (128GB RAM allows faster bulk embedding)
-  max_seq_length = 2048  # OPTIMIZED: 2x increase from 1024 for better long document understanding
+  batch_size = 64
+  max_seq_length = 1024
   quantization = true  # Use int8 for 2x speed and 50% memory reduction
 
   # --- OCR (Vision Chat) Service ---
@@ -129,9 +126,24 @@ api_keys = [
   # Strongly recommended: keep OCR stateless/isolated per request
   max_concurrency = 1
 
-  # Configuration for the Frontend web service.
-  [services.frontend]
-  port = 8000
+  # --- TTS (Voicebox) Service ---
+  #
+  # OpenAI-compatible /v1/audio/speech endpoint for Qwen3-TTS.
+  [services.tts]
+  port = 8086          # Frontend port (with auth)
+  backend_port = 8096  # Backend service port (no auth)
+  model = "Qwen3-TTS-12Hz-0.6B-CustomVoice"
+  default_voice = "serena"
+  language = "Auto"
+
+  # --- Whisper (STT) Service ---
+  #
+  # OpenAI-compatible /v1/audio/transcriptions endpoint for Whisper.
+  [services.whisper]
+  port = 8087          # Frontend port (with auth)
+  backend_port = 8097  # Backend service port (no auth)
+  model = "small.en"
+  language = "en"
 
 # --- OPTIMIZATION NOTES ---
 #

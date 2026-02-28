@@ -44,14 +44,16 @@ get_memory_stats() {
     local swap_free=$(echo "$swap_info" | sed -n 3p)
 
     # Get individual service memory
-    local router_mem=$(get_process_memory_mb "mlx-router")
-    local fast_mem=$(get_process_memory_mb "python.*mlx.*8090")
-    local thinking_mem=$(get_process_memory_mb "python.*mlx.*8091")
-    local embed_mem=$(get_process_memory_mb "embed-server")
-    local ocr_mem=$(get_process_memory_mb "ocr-server")
+    local router_mem=$(get_process_memory_mb "chat-server.py.*router")
+    local fast_mem=$(get_process_memory_mb "chat-server.py.*fast")
+    local thinking_mem=$(get_process_memory_mb "chat-server.py.*thinking")
+    local embed_mem=$(get_process_memory_mb "embed-server.py")
+    local ocr_mem=$(get_process_memory_mb "ocr-server.py")
+    local tts_mem=$(get_process_memory_mb "voice/tts-server.py")
+    local whisper_mem=$(get_process_memory_mb "voice/whisper-server.py")
 
     # Calculate total MLX memory
-    local total_mlx_mem=$((router_mem + fast_mem + thinking_mem + embed_mem + ocr_mem))
+    local total_mlx_mem=$((router_mem + fast_mem + thinking_mem + embed_mem + ocr_mem + tts_mem + whisper_mem))
     local total_mlx_gb=$(echo "scale=2; $total_mlx_mem / 1024" | bc)
 
     # Calculate used memory (approximation based on free)
@@ -67,10 +69,12 @@ get_memory_stats() {
 
     echo -e "${BLUE}MLX Services Memory:${NC}"
     printf "  Router:    %4d MB (Qwen3-0.6B-4bit)\n" "$router_mem"
-    printf "  Fast:      %4d MB (Qwen3-30B-A3B-4bit)\n" "$fast_mem"
-    printf "  Thinking:  %4d MB (Qwen3-30B-A3B-Thinking-4bit)\n" "$thinking_mem"
+    printf "  Fast:      %4d MB (Qwen3.5-35B-A3B-4bit)\n" "$fast_mem"
+    printf "  Thinking:  %4d MB (Qwen3.5-122B-A10B mxfp4)\n" "$thinking_mem"
     printf "  Embedding: %4d MB (Qwen3-Embedding-8B)\n" "$embed_mem"
     printf "  OCR:       %4d MB (olmOCR-2-7B-8bit)\n" "$ocr_mem"
+    printf "  TTS:       %4d MB (Qwen3-TTS)\n" "$tts_mem"
+    printf "  Whisper:   %4d MB (Whisper STT)\n" "$whisper_mem"
     echo "  ─────────────────"
     printf "  Total:     %.2f GB\n" "$total_mlx_gb"
     echo ""

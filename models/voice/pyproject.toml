@@ -1,0 +1,18 @@
+[project]
+name = "voice-services"
+version = "0.1.0"
+description = "mlx-box voice stack (TTS + Whisper)"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "fastapi>=0.115.13",
+    "uvicorn>=0.34.3",
+    "tomlkit>=0.12.0",
+    "python-multipart>=0.0.20,<0.0.25",
+    "soundfile>=0.13.1",
+    "mlx-whisper>=0.4.3,<0.5",
+    "qwen-tts==0.1.1",
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

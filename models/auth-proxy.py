@@ -11,7 +11,7 @@ from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException, status
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, Response
 import httpx
 import tomlkit
 
@@ -30,7 +30,14 @@ def load_config():
         sys.exit(1)
 
 
-def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys: Optional[list] = None, filter_reasoning: bool = False):
+def create_auth_proxy(
+    backend_port: int,
+    api_key: Optional[str] = None,
+    api_keys: Optional[list] = None,
+    filter_reasoning: bool = False,
+    service_name: Optional[str] = None,
+    service_model: Optional[str] = None,
+):
     """Create FastAPI app that proxies requests with authentication.
 
     Args:
@@ -84,6 +91,24 @@ def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys
             try:
                 # Check if response should be streamed
                 body = await request.body()
+                headers = dict(headers)
+
+                # If JSON, rewrite model to configured HF id for this service
+                if service_name and service_model and headers.get("content-type", "").startswith("application/json"):
+                    try:
+                        import json
+
+                        payload = json.loads(body or b"{}")
+                        model = payload.get("model")
+                        if model in (service_name, "", None):
+                            payload["model"] = service_model
+                            body = json.dumps(payload).encode("utf-8")
+                    except Exception:
+                        # If parsing fails, forward original body as-is
+                        pass
+
+                # Let httpx set Content-Length based on the body we pass
+                headers.pop("content-length", None)
 
                 response = await client.request(
                     method=request.method,
@@ -117,7 +142,7 @@ def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys
                                     if isinstance(choice, dict) and "message" in choice:
                                         message = choice["message"]
 
-                                        # Method 1: Remove separate reasoning field (Qwen3-Thinking-2507 format)
+                                        # Method 1: Remove separate reasoning field (legacy reasoning format)
                                         if isinstance(message, dict) and "reasoning" in message:
                                             del message["reasoning"]
 
@@ -159,10 +184,11 @@ def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys
                         response_headers = dict(response.headers)
                         response_headers.pop("content-length", None)
 
-                        return JSONResponse(
-                            content=response.text,
+                        return Response(
+                            content=response.content,
                             status_code=response.status_code,
                             headers=response_headers,
+                            media_type=response.headers.get("content-type"),
                         )
 
             except httpx.RequestError as e:
@@ -177,13 +203,25 @@ def create_auth_proxy(backend_port: int, api_key: Optional[str] = None, api_keys
 def main():
     """Main function to start the auth proxy."""
     parser = argparse.ArgumentParser(description="Start authentication proxy for MLX services")
-    parser.add_argument("--service", choices=["router", "fast", "thinking", "embedding", "ocr"],
+    parser.add_argument("--service", choices=["router", "fast", "thinking", "embedding", "ocr", "tts", "whisper"],
                         required=True, help="The service to proxy")
-    parser.add_argument("--frontend-port", type=int, required=True,
-                        help="The port this proxy will listen on")
+    parser.add_argument("--auth-port", type=int,
+                        help="The port this auth proxy will listen on")
+    parser.add_argument("--frontend-port", type=int,
+                        help="DEPRECATED: use --auth-port")
     parser.add_argument("--backend-port", type=int, required=True,
                         help="The port the backend MLX service is running on")
     args = parser.parse_args()
+
+    if args.auth_port is None and args.frontend_port is None:
+        parser.error("one of --auth-port or --frontend-port is required")
+
+    if args.auth_port is not None and args.frontend_port is not None and args.auth_port != args.frontend_port:
+        parser.error("--auth-port and --frontend-port differ; use only --auth-port")
+
+    if args.auth_port is None:
+        args.auth_port = args.frontend_port
+        print("⚠️  --frontend-port is deprecated; use --auth-port", file=sys.stderr)
 
     # Load configuration
     config = load_config()
@@ -214,18 +252,26 @@ def main():
         print(f"🧠 Reasoning filter enabled - 'reasoning' field will be stripped from responses")
 
     print(f"🚀 Starting auth proxy for {args.service.upper()} service")
-    print(f"📍 Frontend: http://{host}:{args.frontend_port}")
+    print(f"📍 Auth proxy: http://{host}:{args.auth_port}")
     print(f"🔗 Backend: http://{host}:{args.backend_port}")
     print()
 
     # Create and run proxy
-    app = create_auth_proxy(args.backend_port, api_key, api_keys, filter_reasoning)
+    service_model = service_config.get("model")
+    app = create_auth_proxy(
+        args.backend_port,
+        api_key,
+        api_keys,
+        filter_reasoning,
+        service_name=args.service,
+        service_model=service_model,
+    )
 
     # Disable uvloop for OpenAI SDK compatibility
     uvicorn.run(
         app,
         host=host,
-        port=args.frontend_port,
+        port=args.auth_port,
         log_level="info",
         loop="asyncio",
     )

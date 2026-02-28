@@ -12,6 +12,10 @@ venv/
 # This directory contains private settings and should be backed up.
 config/settings.toml
 config/settings.env
+config/system-info.env
+
+# Backups (may contain secrets/PII)
+backups/
 
 # Node.js dependencies
 node_modules/
@@ -20,3 +24,9 @@ pnpm-lock.yaml
 
 # Log files
 *.log
+
+# Local developer notes
+devs-notes/
+
+# Local agent config
+AGENTS.md

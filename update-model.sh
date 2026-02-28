@@ -27,22 +27,17 @@ error() {
 
 if [ -z "$1" ] || [ -z "$2" ]; then
   echo "Usage: $0 <service-tier> <huggingface-model-id>"
-  echo "Tiers: router, fast, thinking, ocr"
-  echo "Example: $0 fast mlx-community/Qwen3-30B-A3B-4bit"
+  echo "Tiers: router, fast, thinking, embedding, ocr, tts, whisper"
+  echo "Example: $0 fast mlx-community/Qwen3.5-35B-A3B-4bit"
   exit 1
 fi
 
 readonly TIER="$1"
 readonly MODEL_ID="$2"
-SERVICE_NAME="com.local.mlx-${TIER}"
+SERVICE_NAME="com.mlx-box.${TIER}-backend"
 
-if [[ ! "$TIER" =~ ^(router|fast|thinking|ocr)$ ]]; then
-    error "Invalid tier: $TIER. Must be 'router', 'fast', 'thinking', or 'ocr'."
-fi
-
-# OCR service label doesn't follow mlx-* naming.
-if [[ "$TIER" == "ocr" ]]; then
-  SERVICE_NAME="com.local.ocr-server"
+if [[ ! "$TIER" =~ ^(router|fast|thinking|embedding|ocr|tts|whisper)$ ]]; then
+    error "Invalid tier: $TIER. Must be 'router', 'fast', 'thinking', 'embedding', 'ocr', 'tts', or 'whisper'."
 fi
 
 # --- Main Script ---
