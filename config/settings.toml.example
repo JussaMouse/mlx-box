@@ -58,6 +58,10 @@ api_keys = [
   port = 8081          # Frontend port (with auth)
   backend_port = 8091  # Backend MLX server port (no auth)
   model = "mlx-community/Qwen3.5-35B-A3B-4bit"
+  # Toggle backend mode:
+  # - "text": mlx-lm (text-only models)
+  # - "multimodal": mlx-vlm (vision-capable models like Qwen3.5-35B-A3B)
+  mode = "multimodal"
   max_tokens = 8192
 
   # OPTIMIZATION: Model parameters for balanced conversation + tool use
@@ -76,7 +80,8 @@ api_keys = [
   [services.thinking]
   port = 8083          # Frontend port (with auth)
   backend_port = 8093  # Backend MLX server port (no auth)
-  model = "nightmedia/Qwen3.5-122B-A10B-Text-mxfp4-mlx"
+  model = "mlx-community/Qwen3.5-122B-A10B-4bit"
+  mode = "multimodal"  # VLM model requires mlx-vlm backend
   max_tokens = 32768
   thinking_budget = 16384
 
@@ -99,6 +104,10 @@ api_keys = [
   # - May reduce response quality (no reasoning to guide answers)
   # - Some models may ignore this (thinking is often baked into the checkpoint)
   # disable_thinking_tags = true  # Alternative: Requires mlx-lm >= 0.30.6
+  #
+  # Chat template handling (recommended for Qwen3.5 text models)
+  chat_template_auto = true  # auto-load chat_template.jinja from HF cache when available
+  trust_remote_code = true
 
   # --- Embedding Service ---
 

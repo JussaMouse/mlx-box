@@ -57,11 +57,11 @@ whisper  8087 → 8097
 Default models (see `config/settings.toml`):
 - router: `mlx-community/Qwen3-0.6B-4bit`
 - fast: `mlx-community/Qwen3.5-35B-A3B-4bit`
-- thinking: `nightmedia/Qwen3.5-122B-A10B-Text-mxfp4-mlx`
+- thinking: `mlx-community/Qwen3.5-122B-A10B-4bit`
 - embedding: `Qwen/Qwen3-Embedding-8B`
 - ocr: `mlx-community/olmOCR-2-7B-1025-mlx-8bit`
 - tts: `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`
-- whisper: `mlx-community/whisper-small.en-4bit`
+- whisper: `small.en`
 
 ---
 
@@ -73,6 +73,9 @@ Default models (see `config/settings.toml`):
 
 `config/settings.toml` drives runtime:
 - `[services.*]` ports, backend ports, models
+- `[services.fast].mode` or `[services.thinking].mode`:
+  - `text` uses mlx-lm (text-only checkpoints)
+  - `multimodal` uses mlx-vlm (vision-capable checkpoints like Qwen3.5-35B-A3B)
 - `[server] api_key` or `api_keys` for auth
 
 ---
@@ -86,6 +89,65 @@ curl http://localhost:8081/v1/models \
 ```
 
 If `api_key` and `api_keys` are empty, auth is disabled. Only do this for strictly localhost use.
+
+---
+
+## Multimodal (VLM) tiers
+To run vision-capable models (e.g. Qwen3.5-35B-A3B) on the fast tier, set:
+- `services.fast.mode = "multimodal"`
+- `services.fast.model = "mlx-community/Qwen3.5-35B-A3B-4bit"`
+
+The VLM server accepts OpenAI-style image content with data URLs:
+`{"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}`
+
+Thinking tier works the same way:
+- `services.thinking.mode = "multimodal"`
+- `services.thinking.model = "mlx-community/Qwen3.5-122B-A10B-4bit"`
+
+For multimodal thinking, make sure the thinking venv includes `mlx-vlm[torch]`
+(this pulls in `torch` + `torchvision` for the Qwen3.5 processors).
+
+---
+
+## Thinking backend isolated env (Qwen3.5-122B)
+Qwen3.5-122B (qwen3_5_moe) can produce garbage output under the stock `mlx-lm` version due to MoE support gaps.
+To keep the rest of mlx-box stable (and avoid `mlx-openai-server` conflicts), the thinking backend can use a **separate venv**.
+
+**Setup**
+```sh
+cd /Users/env/server/mlx-box/models
+/opt/homebrew/bin/python3.12 -m venv venvs/thinking
+venvs/thinking/bin/python -m pip install -r models/requirements-thinking.txt
+```
+`models/requirements-thinking.txt` includes `mlx-vlm[torch]` for multimodal models.
+
+**Launcher (thinking backend only)**
+```sh
+sudo tee /usr/local/bin/mlx-thinking-backend-launcher.sh > /dev/null <<'SH'
+#!/bin/bash
+export HOME="/Users/env"
+export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/env/.local/bin"
+ENV_FILE="/Users/env/server/mlx-box/models/../config/settings.env"
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  . "$ENV_FILE"
+  set +a
+fi
+export MLX_BOX_ROOT="/Users/env/server/mlx-box/models/.."
+export MLX_BOX_CONFIG="/Users/env/server/mlx-box/models/../config/settings.toml"
+export NUMBA_CACHE_DIR="${NUMBA_CACHE_DIR:-/Users/env/Library/Caches/numba}"
+cd "/Users/env/server/mlx-box/models" || exit 1
+exec "/Users/env/server/mlx-box/models/venvs/thinking/bin/python" chat-server.py --service thinking
+SH
+sudo chmod 755 /usr/local/bin/mlx-thinking-backend-launcher.sh
+sudo chown root:wheel /usr/local/bin/mlx-thinking-backend-launcher.sh
+```
+
+**Restart thinking**
+```sh
+sudo launchctl kickstart -k system/com.mlx-box.thinking-backend
+sudo launchctl kickstart -k system/com.mlx-box.thinking
+```
 
 ---
 
@@ -139,6 +201,16 @@ scripts/security-audit-mlx.sh
 tail -f ~/Library/Logs/com.mlx-box.*/stderr.log
 ```
 - If fast/thinking return “Backend service unavailable”, the model is probably still downloading. Set `HF_TOKEN` and restart services.
+- If you see `Failed to load VLM model` or `torchvision is not available`, install the thinking venv deps (`mlx-vlm[torch]`) and restart thinking:
+```sh
+venvs/thinking/bin/python -m pip install -r models/requirements-thinking.txt
+sudo launchctl kickstart -k system/com.mlx-box.thinking-backend
+sudo launchctl kickstart -k system/com.mlx-box.thinking
+```
+- If downloads stall on large models (bandwidth looks saturated but shard progress doesn’t move), disable Hugging Face Xet:
+  - Set `HF_HUB_DISABLE_XET=1` in `config/settings.env`
+  - Restart the affected backend (e.g., `sudo launchctl kickstart -k system/com.mlx-box.fast-backend`)
+  - Why: some HF repos use Xet-backed storage; on macOS the Xet client can stall. Disabling Xet forces standard HTTP downloads.
 - Whisper errors about `ffmpeg` mean the dependency is missing; rerun `./install.sh` or install with `brew install ffmpeg sox`.
 - `scripts/test-services.sh` is the quickest health check.
 

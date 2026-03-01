@@ -7,12 +7,15 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+models/venvs/
 
 # User-specific configuration
 # This directory contains private settings and should be backed up.
 config/settings.toml
 config/settings.env
 config/system-info.env
+config/config
+scripts/config
 
 # Backups (may contain secrets/PII)
 backups/

@@ -10,7 +10,7 @@
 # --- Configuration ---
 # Hardcoded values for a consistent server setup.
 readonly PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly PYTHON_VERSION="3.11.10"
+readonly PYTHON_VERSION="3.12.12"
 readonly NODE_VERSION="24.2"
 readonly HOMEBREW_PACKAGES=(
     "python@3.12"
@@ -30,6 +30,14 @@ readonly HOMEBREW_PACKAGES=(
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
+# --- Download Monitoring Defaults ---
+# Set MODEL_DOWNLOAD_WAIT=0 to skip waiting for model downloads.
+MODEL_DOWNLOAD_WAIT="${MODEL_DOWNLOAD_WAIT:-1}"
+MODEL_DOWNLOAD_INTERVAL_SEC="${MODEL_DOWNLOAD_INTERVAL_SEC:-20}"
+MODEL_DOWNLOAD_IDLE_WARN_SEC="${MODEL_DOWNLOAD_IDLE_WARN_SEC:-300}"
+DOWNLOAD_MARKER="/tmp/mlx-box-download-start.$$"
+touch "${DOWNLOAD_MARKER}"
+
 # --- Helper Functions ---
 
 # A function for logging styled output.
@@ -40,6 +48,112 @@ log() {
 # A function for logging success messages.
 success() {
     echo "✅ [mlx-box-INSTALL] $1"
+}
+
+get_backend_logs() {
+    local user_home="$1"
+    local logs=(
+        "router"
+        "fast"
+        "thinking"
+        "embedding"
+        "ocr"
+        "tts"
+        "whisper"
+    )
+    for svc in "${logs[@]}"; do
+        local f="${user_home}/Library/Logs/com.mlx-box.${svc}-backend/stderr.log"
+        if [ -f "$f" ]; then
+            echo "${svc}|${f}"
+        fi
+    done
+}
+
+log_configured_models() {
+    local settings_toml="$1"
+    if [ ! -f "$settings_toml" ]; then
+        log "settings.toml not found for model listing: ${settings_toml}"
+        return 0
+    fi
+    log "Configured models (from settings.toml):"
+    awk '
+        /^\[services\./ { section=$0; gsub(/[\[\]]/,"",section); }
+        /^[[:space:]]*model[[:space:]]*=/ {
+            gsub(/"/,"",$3);
+            printf "  - %s: %s\n", section, $3;
+        }
+    ' "$settings_toml" | sed 's/^/🔵 [mlx-box-INSTALL] /'
+}
+
+wait_for_model_downloads() {
+    local user_home="$1"
+    local hf_cache="${user_home}/.cache/huggingface/hub"
+    local state_dir="/tmp/mlx-box-download-state"
+    local last_change_ts
+    local last_incomplete="-1"
+    local now_ts
+
+    if [ "${MODEL_DOWNLOAD_WAIT}" != "1" ]; then
+        log "MODEL_DOWNLOAD_WAIT=0; skipping download wait."
+        return 0
+    fi
+
+    if [ ! -d "${hf_cache}" ]; then
+        log "Hugging Face cache not found at ${hf_cache}; skipping download wait."
+        return 0
+    fi
+
+    mkdir -p "${state_dir}"
+    last_change_ts=$(date +%s)
+
+    # Only wait if we detect fresh download activity.
+    if ! find "${hf_cache}" -type f -name "*.incomplete" -newer "${DOWNLOAD_MARKER}" 2>/dev/null | head -n 1 | grep -q .; then
+        log "No new model downloads detected."
+        return 0
+    fi
+
+    log "Model downloads detected; waiting for completion..."
+    log_configured_models "${PROJECT_DIR}/config/settings.toml"
+
+    while true; do
+        local incomplete_count
+        incomplete_count=$(find "${hf_cache}" -type f -name "*.incomplete" -newer "${DOWNLOAD_MARKER}" 2>/dev/null | wc -l | tr -d ' ')
+        if [ "${incomplete_count}" -eq 0 ]; then
+            success "All model downloads complete."
+            break
+        fi
+
+        if [ "${incomplete_count}" != "${last_incomplete}" ]; then
+            log "Download progress: ${incomplete_count} incomplete files remaining."
+            last_incomplete="${incomplete_count}"
+            last_change_ts=$(date +%s)
+        fi
+
+        while IFS= read -r entry; do
+            local svc="${entry%%|*}"
+            local log_file="${entry#*|}"
+            local last_file="${state_dir}/last_${svc}.txt"
+            local line
+            line=$(grep -E "Fetching [0-9]+ files|Loading weights|Resolved .* model id|Model loaded|✅" "$log_file" 2>/dev/null | tail -n 1 | tr '\r' ' ')
+            if [ -n "${line}" ]; then
+                local prev=""
+                if [ -f "${last_file}" ]; then prev=$(cat "${last_file}"); fi
+                if [ "${line}" != "${prev}" ]; then
+                    echo "${line}" > "${last_file}"
+                    log "Download progress (${svc}): ${line}"
+                    last_change_ts=$(date +%s)
+                fi
+            fi
+        done < <(get_backend_logs "${user_home}")
+
+        now_ts=$(date +%s)
+        if [ $((now_ts - last_change_ts)) -ge "${MODEL_DOWNLOAD_IDLE_WARN_SEC}" ]; then
+            log "⚠️  No download activity detected for ${MODEL_DOWNLOAD_IDLE_WARN_SEC}s. If stuck, check backend logs in ~/Library/Logs/com.mlx-box.*"
+            last_change_ts=$(date +%s)
+        fi
+
+        sleep "${MODEL_DOWNLOAD_INTERVAL_SEC}"
+    done
 }
 
 # --- Main Script ---
@@ -331,6 +445,11 @@ success "Final Nginx configuration has been generated."
 log "Restarting Nginx to apply final production configuration..."
 sudo launchctl kickstart -k system/homebrew.mxcl.nginx
 success "Nginx has been restarted."
+
+# --- Phase 6.5: Model Download Wait (if needed) ---
+REAL_USER="${SUDO_USER:-$(whoami)}"
+USER_HOME="/Users/${REAL_USER}"
+wait_for_model_downloads "${USER_HOME}"
 
 
 # --- Phase 7: Finalization ---
